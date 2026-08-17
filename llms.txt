@@ -1,0 +1,67 @@
+# dsh-codex-reasoning-router
+
+PURPOSE: DeepSeek Harness (DSH) plugin + preset. Luna executes; tool-less Sol advises.
+REPO: https://github.com/chenmzh/dsh-codex-reasoning-router
+LICENSE: Apache-2.0
+
+RUNTIME:
+- root executor = openai-codex/gpt-5.6-luna
+- advisor = openai-codex/gpt-5.6-sol
+- preset id = luna-sol-reasoning-router
+- plugin id/name = reasoning-router / dsh-codex-reasoning-router
+- first user turn: Sol advice completes before Luna request
+- later blocker: Luna may call sol_consult
+- same issue: at most 2 successful calls; default effort medium then high
+- default provider failure behavior: fail open; Luna continues
+
+HARD INVARIANTS:
+- Sol receives no tools and no sessionId.
+- Sol never edits, executes, delegates, or replies to the user.
+- Any Sol tool-call block is rejected and never dispatched.
+- Luna owns tools, files, MCP, skills, subagents, verification, and final answer.
+- Plugin attaches only to a root session whose durable preset id matches.
+- Main route must be openai-codex/gpt-5.6-luna; mismatch is blocked, not rewritten.
+- Consultation state is restored from append-only session events.
+
+REQUIREMENTS:
+- current DeepSeek Harness
+- authenticated dsh-codex >=0.2.3
+- model access: gpt-5.6-luna + gpt-5.6-sol on openai-codex
+- development only: Node.js 22 + pnpm; adjacent ../dsh-codex checkout for link devDependency
+- exact peer APIs: package.json#peerDependencies
+
+INSTALL_FROM_GITHUB:
+1. pnpm dsh plugin --profile web add dsh-codex
+2. pnpm --dir <DSH_HOME>/profiles/web add github:chenmzh/dsh-codex-reasoning-router
+3. copy <DSH_HOME>/profiles/web/node_modules/dsh-codex-reasoning-router/preset/luna-sol-reasoning-router to <DSH_HOME>/.agent-presets/
+4. restart DSH
+5. create a new session; select preset "Luna + Sol Reasoning Router" and model openai-codex/gpt-5.6-luna
+Do not add this package to dsh.profile.bundles. It is mounted by the preset.
+
+CONFIG: preset/luna-sol-reasoning-router/agent.cordis.yml
+- initialSolReasoning: medium|high; default medium
+- escalatedSolReasoning: medium|high; default high
+- solAdviceMaxTokens: 256..4096; default 2000
+- solTimeoutMs: 1000..120000; default 30000
+- initialConsultEnabled: boolean; default true
+- failOpen: boolean; default true
+
+CODE MAP:
+- src/advisor.ts: isolated Sol request; no tools/session; output protocol
+- src/router.ts: first-turn and blocker consultation state machine
+- src/tool.ts: fixed sol_consult schema
+- src/state.ts: issue fingerprints and durable restore
+- src/events.ts: session event registration
+- src/index.ts: plugin config and lifecycle wiring
+- preset/luna-sol-reasoning-router/: complete opt-in preset
+- tests/router.spec.ts: invariant tests
+
+VERIFY:
+- pnpm run typecheck
+- pnpm run test
+- pnpm run build
+- pnpm pack --dry-run
+
+READ NEXT ONLY IF NEEDED:
+- Human Chinese quickstart: README.zh-CN.md
+- Detailed English design/API notes: README.md

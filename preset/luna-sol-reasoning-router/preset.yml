@@ -1,0 +1,3 @@
+name: Luna + Sol Reasoning Router
+description: Luna 使用完整 Standard 工具执行；无工具的 Sol 仅在首轮和困难阻塞点提供建议。
+order: 5

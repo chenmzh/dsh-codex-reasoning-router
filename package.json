@@ -1,0 +1,76 @@
+{
+  "name": "dsh-codex-reasoning-router",
+  "version": "0.1.0",
+  "description": "Luna executor with a tool-less Sol reasoning advisor for DeepSeek Harness",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "codex",
+    "luna",
+    "sol",
+    "reasoning-router",
+    "ai-agent"
+  ],
+  "homepage": "https://github.com/chenmzh/dsh-codex-reasoning-router#readme",
+  "bugs": {
+    "url": "https://github.com/chenmzh/dsh-codex-reasoning-router/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chenmzh/dsh-codex-reasoning-router.git"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "preset",
+    "README.md",
+    "README.zh-CN.md",
+    "llms.txt"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "build": "pnpm run typecheck && tsdown",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build"
+  },
+  "license": "Apache-2.0",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent": "*",
+    "@deepseek-ai/dsh-agent-presets": ">=0.1.0-rc.5",
+    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-session": "*",
+    "@deepseek-ai/dsh-system-prompt": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "dsh-codex": ">=0.2.3"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-agent-presets": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "@types/node": "^22.20.0",
+    "@rolldown/binding-linux-x64-gnu": "1.2.4",
+    "@yuku-codegen/binding-linux-x64-gnu": "0.8.7",
+    "@yuku-parser/binding-linux-x64-gnu": "0.8.7",
+    "dsh-codex": "link:../dsh-codex",
+    "tsdown": "0.22.14",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.10"
+  }
+}
