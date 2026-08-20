@@ -33,13 +33,13 @@ REQUIREMENTS:
 
 INSTALL_FROM_GITHUB:
 1. pnpm dsh plugin --profile web add dsh-codex
-2. pnpm --dir <DSH_HOME>/profiles/web add github:chenmzh/dsh-codex-reasoning-router
+2. pnpm dsh plugin --profile web add github:chenmzh/dsh-codex-reasoning-router
 3. copy <DSH_HOME>/profiles/web/node_modules/dsh-codex-reasoning-router/preset/luna-sol-reasoning-router to <DSH_HOME>/.agent-presets/
 4. restart DSH
 5. create a new session; select preset "Luna + Sol Reasoning Router" and model openai-codex/gpt-5.6-luna
-Do not add this package to dsh.profile.bundles. It is mounted by the preset.
+The plugin command adds this package to dsh.profile.bundles so durable Router events register before cold history reads.
 
-CONFIG: preset/luna-sol-reasoning-router/agent.cordis.yml
+CONFIG: cordis.patch.yml (host bundle; requiredPresetId gates agent behavior)
 - initialSolReasoning: medium|high; default medium
 - escalatedSolReasoning: medium|high; default high
 - solAdviceMaxTokens: 256..4096; default 2000
@@ -54,7 +54,8 @@ CODE MAP:
 - src/state.ts: issue fingerprints and durable restore
 - src/events.ts: session event registration
 - src/index.ts: plugin config and lifecycle wiring
-- preset/luna-sol-reasoning-router/: complete opt-in preset
+- cordis.patch.yml: host-plane Router mount and cold-history event compatibility
+- preset/luna-sol-reasoning-router/: complete opt-in preset identity and Standard tool surface
 - tests/router.spec.ts: invariant tests
 
 VERIFY:

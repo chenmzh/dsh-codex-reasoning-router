@@ -34,10 +34,10 @@ DeepSeek Harness（`dsh`）的 Luna + Sol 混合推理 preset：
 pnpm dsh plugin --profile web add dsh-codex
 ```
 
-2. 从 GitHub 把 Router 作为 profile 依赖安装。**不要**把它加入 `dsh.profile.bundles`：
+2. 通过 DSH plugin 命令从 GitHub 安装 Router；该命令会自动把 Host bundle 加入 `dsh.profile.bundles`：
 
 ```bash
-pnpm --dir /path/to/.dsh/profiles/web add github:chenmzh/dsh-codex-reasoning-router
+pnpm dsh plugin --profile web add github:chenmzh/dsh-codex-reasoning-router
 ```
 
 3. 复制 preset：
@@ -49,17 +49,17 @@ cp -R /path/to/.dsh/profiles/web/node_modules/dsh-codex-reasoning-router/preset/
 本地开发版本可改用：
 
 ```bash
-pnpm --dir /path/to/.dsh/profiles/web add link:/absolute/path/to/dsh-codex-reasoning-router
+pnpm dsh plugin --profile web add link:/absolute/path/to/dsh-codex-reasoning-router
 cp -R /absolute/path/to/dsh-codex-reasoning-router/preset/luna-sol-reasoning-router /path/to/.dsh/.agent-presets/
 ```
 
 4. 重启 DSH，新建会话并显式选择 **Luna + Sol Reasoning Router**；模型选择 `openai-codex / gpt-5.6-luna`。
 
-这个 preset 不修改默认 preset，也不会静默切换主模型。插件会在空白会话切换 preset 时同步更新挂载状态；即使随其他 preset 一起加载，也只会在实际使用 `luna-sol-reasoning-router` 的 root session 上校验模型目录并限制主路由；其他 preset 可以自由尝试可用的 provider/model。修改配置后必须新建会话。
+这个 preset 不修改默认 preset，也不会静默切换主模型。Host bundle 会在冷读取历史会话前注册 Router 持久化事件；插件只会在实际使用 `luna-sol-reasoning-router` 的 root session 上挂提示词与工具、校验模型目录并限制主路由，其他 preset 可以自由尝试可用的 provider/model。修改配置后必须新建会话。
 
 ## 配置
 
-配置文件：[`preset/luna-sol-reasoning-router/agent.cordis.yml`](./preset/luna-sol-reasoning-router/agent.cordis.yml)
+Host 配置文件：[`cordis.patch.yml`](./cordis.patch.yml)
 
 ```yaml
 initialSolReasoning: medium   # medium | high
@@ -99,7 +99,7 @@ pnpm pack --dry-run
 
 - Sol 请求不含 `tools` 和 `sessionId`。
 - Sol 返回 tool-call 时会报协议错误，绝不执行。
-- Router 只挂载到 `luna-sol-reasoning-router` 的 root session；其他 preset 不受该插件的模型校验和路由限制。
+- Router 由 Profile bundle 在 Host 启动时加载，以便冷读取历史会话前注册持久化事件类型；`requiredPresetId` 仍保证只有 `luna-sol-reasoning-router` 获得提示词、工具、模型校验和路由约束。
 - 在该 preset 中，非 Luna 主路由会被阻止，不会被插件偷偷改写。
 - 网络或 provider 失败在默认 `failOpen: true` 下只记录警告，Luna 继续执行。
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-codex-reasoning-router",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Luna executor with a tool-less Sol reasoning advisor for DeepSeek Harness",
   "keywords": [
     "deepseek-harness",
@@ -27,9 +27,11 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
+    "cordis.patch.yml",
     "lib",
     "src",
     "preset",
@@ -37,6 +39,11 @@
     "README.zh-CN.md",
     "llms.txt"
   ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
@@ -64,8 +71,8 @@
     "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6",
     "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
     "@deepseek-ai/schemastery": "3.18.1",
-    "@types/node": "^22.20.0",
     "@rolldown/binding-linux-x64-gnu": "1.2.4",
+    "@types/node": "^22.20.0",
     "@yuku-codegen/binding-linux-x64-gnu": "0.8.7",
     "@yuku-parser/binding-linux-x64-gnu": "0.8.7",
     "dsh-codex": "link:../dsh-codex",

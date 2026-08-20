@@ -19,28 +19,30 @@ Requirements:
 - access to `openai-codex/gpt-5.6-luna` and `openai-codex/gpt-5.6-sol`;
 - Node.js 22 and pnpm for source development (verified with Node 22.23 and pnpm 11.7).
 
-Install and authenticate the current `dsh-codex` first. Add this package to the profile as a dependency only; do not add it to `dsh.profile.bundles`. Then copy the shipped preset directory into DSH home:
+Install and authenticate the current `dsh-codex` first. Install this package through the DSH plugin command so its host bundle is added to `dsh.profile.bundles`, then copy the shipped preset directory into DSH home:
 
 ```bash
 pnpm dsh plugin --profile web add dsh-codex
-pnpm --dir /path/to/.dsh/profiles/web add link:/absolute/path/to/dsh-codex-reasoning-router
+pnpm dsh plugin --profile web add link:/absolute/path/to/dsh-codex-reasoning-router
 cp -R /absolute/path/to/dsh-codex-reasoning-router/preset/luna-sol-reasoning-router /path/to/.dsh/.agent-presets/
 ```
 
 Install directly from GitHub instead of a local checkout:
 
 ```bash
-pnpm --dir /path/to/.dsh/profiles/web add github:chenmzh/dsh-codex-reasoning-router
+pnpm dsh plugin --profile web add github:chenmzh/dsh-codex-reasoning-router
 cp -R /path/to/.dsh/profiles/web/node_modules/dsh-codex-reasoning-router/preset/luna-sol-reasoning-router /path/to/.dsh/.agent-presets/
 ```
 
-For a published package, replace the link dependency with `dsh-codex-reasoning-router` and copy the same directory from its installed package. Restart DSH, then explicitly select **Luna + Sol Reasoning Router** for a new session. The existing default preset is not changed.
+For a published package, pass `dsh-codex-reasoning-router` to the same plugin command and copy the preset from its installed package. Restart DSH, then explicitly select **Luna + Sol Reasoning Router** for a new session. The existing default preset is not changed.
 
-The preset is a complete copy of the official Standard composition, preserving its normal tools, Skills, MCP, compaction, and subagent surface. It adds only the Router row. The plugin also checks the effective durable session preset via the public `resolveSessionPreset` API and reconciles its attachment when a blank session switches presets; accidental global loading does not attach it to other presets. Model-catalog validation is deferred until a root using this preset starts a step, so another preset can use any available provider/model without being checked or blocked by this plugin.
+The preset is a complete copy of the official Standard composition, preserving its normal tools, Skills, MCP, compaction, and subagent surface. The profile bundle mounts the Router once on the host plane; the preset identity activates its agent integrations. The plugin also checks the effective durable session preset via the public `resolveSessionPreset` API and reconciles its attachment when a blank session switches presets; accidental global loading does not attach it to other presets. Model-catalog validation is deferred until a root using this preset starts a step, so another preset can use any available provider/model without being checked or blocked by this plugin.
 
 DSH presets do not own the host model route. Select `openai-codex / gpt-5.6-luna` before using this preset. If a saved route differs, the plugin stops that session with a diagnostic and never silently switches the main model. Sessions using another preset do not receive this route guard.
 
 ## Configuration
+
+Host configuration lives in [`cordis.patch.yml`](./cordis.patch.yml):
 
 ```yaml
 - id: reasoning-router
@@ -119,7 +121,7 @@ Fingerprints hash normalized goal, problem, and stable file/error/test anchors. 
 
 The plugin uses the existing `openai-codex` adapter and credential lifecycle. It does not read OAuth files or tokens and does not call private ChatGPT endpoints. Sol one-shots intentionally omit `sessionId`; normal Luna turns remain owned by dsh-codex and retain their standard WebSocket context reuse and native/basic compaction behavior.
 
-The Router is mounted only by the opt-in preset and adds one scoped system section and one scoped tool. It does not replace system prompt sections, contexts, the normal tool catalog, skills, MCP, subagent orchestration, compaction, permissions, or the agent loop. Subagents do not receive `sol_consult` from this plugin.
+The profile bundle mounts the Router during host boot so its durable event vocabulary is available before cold session-history reads. `requiredPresetId` still gates every agent integration: only the opt-in preset receives the scoped system section, tool, model validation, and routing checks. It does not replace system prompt sections, contexts, the normal tool catalog, skills, MCP, subagent orchestration, compaction, permissions, or the agent loop. Subagents do not receive `sol_consult` from this plugin.
 
 ## Observability and verification
 

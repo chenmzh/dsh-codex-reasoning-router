@@ -1,0 +1,20 @@
+# Host-plane mount: session history is loaded before an agent preset exists, so
+# the Router must register its durable event vocabulary during profile boot.
+# Runtime behavior remains gated by requiredPresetId inside the plugin.
+
+- insert:
+    - id: reasoning-router
+      name: dsh-codex-reasoning-router
+      inject: [openAICodex]
+      config:
+        requiredPresetId: luna-sol-reasoning-router
+        lunaProvider: openai-codex
+        lunaModel: gpt-5.6-luna
+        solProvider: openai-codex
+        solModel: gpt-5.6-sol
+        initialSolReasoning: medium
+        escalatedSolReasoning: high
+        solAdviceMaxTokens: 2000
+        solTimeoutMs: 30000
+        initialConsultEnabled: true
+        failOpen: true

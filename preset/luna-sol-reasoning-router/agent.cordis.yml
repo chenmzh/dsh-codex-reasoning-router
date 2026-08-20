@@ -32,48 +32,10 @@
   config:
     maxBytes: 65536
 
-# Luna remains the only executor; Sol is a tool-less advisory one-shot.
-#
-# 编辑说明：
-# - 修改后请新建会话；已经开始工作的会话继续使用创建时加载的配置。
-# - requiredPresetId 和两个 provider 属于架构边界，建议不要修改。
-# - 两个 reasoning effort 可以编辑，但只允许 medium 或 high；默认仍是 medium -> high。
-# - 常用可调项是 solAdviceMaxTokens、solTimeoutMs、initialConsultEnabled 和 failOpen。
-# - Sol 永远不会获得工具；这些配置只能改变咨询模型、预算与失败行为。
-- id: reasoning-router
-  name: dsh-codex-reasoning-router
-  inject: [openAICodex]
-  config:
-    # 架构固定：只有选择这个 preset 的 root session 才允许挂载 Router。
-    requiredPresetId: luna-sol-reasoning-router
-
-    # Luna 主 Agent 路由。插件只校验，不会偷偷切换用户选择的模型。
-    lunaProvider: openai-codex
-    lunaModel: gpt-5.6-luna
-
-    # Sol Advisor 路由。仍复用 dsh-codex 的 credential 与 provider 生命周期。
-    solProvider: openai-codex
-    solModel: gpt-5.6-sol
-
-    # 可编辑：两次咨询各自只能选择 medium 或 high。
-    # 推荐并默认 medium -> high；无论如何都不支持 xhigh/max，且最多咨询两次。
-    initialSolReasoning: medium
-    escalatedSolReasoning: high
-
-    # 单次 Sol 建议的最大输出 token；允许范围 256-4096，默认 2000。
-    # 降低可省成本；复杂架构诊断可提高到 2500-3000。
-    solAdviceMaxTokens: 2000
-
-    # 单次咨询超时（毫秒）；允许范围 1000-120000。超时不会自动触发第二阶段。
-    solTimeoutMs: 30000
-
-    # true：每个新 root session 的首条真实用户消息先使用 initialSolReasoning 咨询 Sol。
-    # false：跳过首轮咨询，但 Luna 之后仍可显式调用 sol_consult。
-    initialConsultEnabled: true
-
-    # 建议保持 true：Sol 不可用时记录 warning，让 Luna 继续工作。
-    # false 会让首轮咨询失败阻止该次执行，通常不适合生产环境。
-    failOpen: true
+# Luna remains the only executor; Sol is a tool-less advisory one-shot. The
+# profile bundle mounts the Router on the host plane so its durable event types
+# are registered before cold history reads. `requiredPresetId` still limits all
+# prompt, tool, model-validation, and routing behavior to this preset.
 
 # ── shell ───────────────────────────────────────────────────────────────────
 
