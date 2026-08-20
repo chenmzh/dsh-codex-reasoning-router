@@ -36,9 +36,9 @@ cp -R /path/to/.dsh/profiles/web/node_modules/dsh-codex-reasoning-router/preset/
 
 For a published package, replace the link dependency with `dsh-codex-reasoning-router` and copy the same directory from its installed package. Restart DSH, then explicitly select **Luna + Sol Reasoning Router** for a new session. The existing default preset is not changed.
 
-The preset is a complete copy of the official Standard composition, preserving its normal tools, Skills, MCP, compaction, and subagent surface. It adds only the Router row. The plugin also checks the effective durable session preset via the public `resolveSessionPreset` API; accidental global loading does not attach it to other presets.
+The preset is a complete copy of the official Standard composition, preserving its normal tools, Skills, MCP, compaction, and subagent surface. It adds only the Router row. The plugin also checks the effective durable session preset via the public `resolveSessionPreset` API and reconciles its attachment when a blank session switches presets; accidental global loading does not attach it to other presets. Model-catalog validation is deferred until a root using this preset starts a step, so another preset can use any available provider/model without being checked or blocked by this plugin.
 
-DSH presets do not own the host model route. Select `openai-codex / gpt-5.6-luna` before using this preset. If a saved route differs, the plugin stops that session with a diagnostic and never silently switches the main model.
+DSH presets do not own the host model route. Select `openai-codex / gpt-5.6-luna` before using this preset. If a saved route differs, the plugin stops that session with a diagnostic and never silently switches the main model. Sessions using another preset do not receive this route guard.
 
 ## Configuration
 
@@ -60,7 +60,7 @@ DSH presets do not own the host model route. Select `openai-codex / gpt-5.6-luna
     failOpen: true
 ```
 
-Both effort fields accept only `medium` or `high` and default to `medium -> high`. The narrow domain type and runtime guard reject `xhigh` and `max`. Startup checks the provider catalog and exact model metadata; a missing configured model is an error, not a fallback.
+Both effort fields accept only `medium` or `high` and default to `medium -> high`. The narrow domain type and runtime guard reject `xhigh` and `max`. When a root using this preset starts, the plugin checks the provider catalog and exact model metadata; a missing configured model is an error, not a fallback. That check is not performed for other presets.
 
 Confirm current IDs with the DSH model picker (`/model`) or the public LLM registry used by a diagnostic plugin:
 

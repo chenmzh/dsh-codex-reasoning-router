@@ -80,6 +80,13 @@ export function apply(ctx: Context, config: Config): void {
   installRouterEvents()
   const advisor = new SolAdvisor(ctx, config)
   const installed = new Map<Agent, Installation>()
+  // Preset standing scopes are loaded even when no session uses this preset.
+  // Do not query or constrain the model catalog until a matching root starts.
+  let modelValidation: Promise<void> | undefined
+
+  const validateRouterModels = (): Promise<void> => {
+    return modelValidation ??= validateModels(ctx, config)
+  }
 
   const attach = (agent: Agent): void => {
     if (installed.has(agent) || !isRouterPresetAgent(agent, ctx.agents.roots(), config.requiredPresetId)) return
@@ -101,19 +108,35 @@ export function apply(ctx: Context, config: Config): void {
     installation.disposePrompt()
   }
 
-  ctx.on('agent/created', ({ agent }) => { attach(agent) })
-  ctx.on('agent/disposed', ({ agent }) => { installed.delete(agent) })
+  /** Reconcile the installation after a blank session changes its preset. */
+  const syncAgent = (agent: Agent): Installation | undefined => {
+    if (!isRouterPresetAgent(agent, ctx.agents.roots(), config.requiredPresetId)) {
+      detach(agent)
+      return undefined
+    }
+    attach(agent)
+    return installed.get(agent)
+  }
+
+  ctx.on('agent/created', ({ agent }) => { syncAgent(agent) })
+  ctx.on('agent/disposed', ({ agent }) => { detach(agent) })
+  ctx.on('session/event', (session, event) => {
+    if (event.type !== 'agent-preset/selected') return
+    const agent = ctx.agents.roots().find(candidate => candidate.id === session.id)
+    if (agent !== undefined) syncAgent(agent)
+  })
   ctx.on('agent/pre-step', async (payload, next) => {
-    const installation = installed.get(payload.agent)
+    const installation = syncAgent(payload.agent)
     if (installation === undefined) return next()
     const decision = await next()
     if (decision.kind === 'reject') return decision
+    await validateRouterModels()
     const messages = await installation.router.beforeFirstStep(payload.agent, decision.messages, payload.signal)
     return { kind: 'enter', messages }
   })
   ctx.on('agent/request', async (payload, next) => {
+    const installation = syncAgent(payload.agent)
     const request = await next()
-    const installation = installed.get(payload.agent)
     if (installation === undefined) return request
     if (request.provider !== config.lunaProvider || request.model !== config.lunaModel) {
       throw new Error(
@@ -128,8 +151,9 @@ export function apply(ctx: Context, config: Config): void {
     // public GenerateOptions purpose union has no custom plugin tag in rc.6.
     if (advisorScope.getStore()?.purpose === 'sol-advisory') return next()
     if (isAgentLoopRequest(options) && options.sessionId !== undefined) {
-      const root = [...installed.keys()].find(agent => agent.id === options.sessionId)
-      if (root !== undefined
+      const root = ctx.agents.roots().find(agent => agent.id === options.sessionId)
+      const installation = root === undefined ? undefined : syncAgent(root)
+      if (installation !== undefined
         && (options.provider !== config.lunaProvider || options.model !== config.lunaModel)) {
         throw new Error(
           PACKAGE_NAME + ": root LLM stream must remain " + config.lunaProvider + "/" + config.lunaModel + "; "
@@ -141,7 +165,6 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   for (const agent of ctx.agents.roots()) attach(agent)
-  ctx.effect(() => validateModels(ctx, config).then(() => () => undefined), `${PACKAGE_NAME}: validate configured model catalog`)
   ctx.effect(() => () => {
     for (const agent of [...installed.keys()]) detach(agent)
   }, `${PACKAGE_NAME}: root agent integrations`)

@@ -55,7 +55,7 @@ cp -R /absolute/path/to/dsh-codex-reasoning-router/preset/luna-sol-reasoning-rou
 
 4. 重启 DSH，新建会话并显式选择 **Luna + Sol Reasoning Router**；模型选择 `openai-codex / gpt-5.6-luna`。
 
-这个 preset 不修改默认 preset，也不会静默切换主模型。修改配置后必须新建会话。
+这个 preset 不修改默认 preset，也不会静默切换主模型。插件会在空白会话切换 preset 时同步更新挂载状态；即使随其他 preset 一起加载，也只会在实际使用 `luna-sol-reasoning-router` 的 root session 上校验模型目录并限制主路由；其他 preset 可以自由尝试可用的 provider/model。修改配置后必须新建会话。
 
 ## 配置
 
@@ -70,7 +70,7 @@ initialConsultEnabled: true
 failOpen: true
 ```
 
-建议保留 `medium -> high`、`initialConsultEnabled: true`、`failOpen: true`。Provider、模型和 `requiredPresetId` 是架构边界，除非你同步修改并验证插件，否则不要更改。
+建议保留 `medium -> high`、`initialConsultEnabled: true`、`failOpen: true`。当使用该 preset 的 root session 开始工作时，插件才会校验配置的 provider/model；缺失模型会报错且不会回退。Provider、模型和 `requiredPresetId` 是该 preset 的架构边界，除非你同步修改并验证插件，否则不要更改。
 
 ## 工作流
 
@@ -99,8 +99,8 @@ pnpm pack --dry-run
 
 - Sol 请求不含 `tools` 和 `sessionId`。
 - Sol 返回 tool-call 时会报协议错误，绝不执行。
-- Router 只挂载到 `luna-sol-reasoning-router` 的 root session。
-- 非 Luna 主路由会被阻止，不会被插件偷偷改写。
+- Router 只挂载到 `luna-sol-reasoning-router` 的 root session；其他 preset 不受该插件的模型校验和路由限制。
+- 在该 preset 中，非 Luna 主路由会被阻止，不会被插件偷偷改写。
 - 网络或 provider 失败在默认 `failOpen: true` 下只记录警告，Luna 继续执行。
 
 完整实现细节、事件名、公开 DSH API 清单见 [English README](./README.md)。AI 应优先读取 [`llms.txt`](./llms.txt)。

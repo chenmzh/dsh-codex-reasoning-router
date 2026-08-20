@@ -11,6 +11,7 @@ import {
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import {
   advisorScope,
+  apply,
   isRouterPresetAgent,
   installRouterEvents,
   issueFingerprint,
@@ -62,8 +63,48 @@ function fakeAgent(id: string, seed: readonly never[] = [], agentPreset?: string
     id: session.id,
     options: { provider: config.lunaProvider, model: config.lunaModel },
     session,
-    ctx: { logger: undefined } as unknown as Context,
+    ctx: {
+      logger: undefined,
+      systemPrompt: { section: vi.fn(() => () => true) },
+      tools: { register: vi.fn(() => () => true) },
+    } as unknown as Context,
   } as Agent
+}
+
+interface ApplyHarness {
+  readonly listeners: Map<string, (...args: unknown[]) => unknown>
+  readonly listModels: ReturnType<typeof vi.fn>
+  readonly resolveModelInfo: ReturnType<typeof vi.fn>
+}
+
+function applyHarness(roots: readonly Agent[]): ApplyHarness {
+  const listeners = new Map<string, (...args: unknown[]) => unknown>()
+  const listModels = vi.fn(async () => [{ id: config.lunaModel }, { id: config.solModel }])
+  const resolveModelInfo = vi.fn(async () => undefined)
+  const ctx = {
+    agents: { roots: () => roots },
+    llm: { listModels, resolveModelInfo },
+    on: vi.fn((name: string, listener: (...args: unknown[]) => unknown) => {
+      listeners.set(name, listener)
+      return () => true
+    }),
+    effect: vi.fn((setup: () => unknown) => {
+      void Promise.resolve(setup()).catch(() => undefined)
+      return () => true
+    }),
+  } as unknown as Context
+  apply(ctx, config)
+  return { listeners, listModels, resolveModelInfo }
+}
+
+async function callListener(
+  listeners: Map<string, (...args: unknown[]) => unknown>,
+  name: string,
+  ...args: unknown[]
+): Promise<unknown> {
+  const listener = listeners.get(name)
+  if (listener === undefined) throw new Error(`listener ${name} was not registered`)
+  return await listener(...args)
 }
 
 function user(text: string) {
@@ -250,6 +291,49 @@ describe('reasoning router invariants', () => {
     expect(isRouterPresetAgent(matching, [matching, standard], config.requiredPresetId)).toBe(true)
     expect(isRouterPresetAgent(standard, [matching, standard], config.requiredPresetId)).toBe(false)
     expect(isRouterPresetAgent(matching, [], config.requiredPresetId)).toBe(false)
+  })
+
+  it('does not validate or restrict models for a non-router preset', async () => {
+    const standard = fakeAgent('standard-route', [], 'standard')
+    const harness = applyHarness([standard])
+    await callListener(
+      harness.listeners,
+      'agent/request',
+      { agent: standard },
+      async () => ({ provider: 'another-provider', model: 'another-model' }),
+    )
+    expect(harness.listModels).not.toHaveBeenCalled()
+    expect(harness.resolveModelInfo).not.toHaveBeenCalled()
+  })
+
+  it('defers configured-model validation until a router preset starts a step', async () => {
+    const matching = fakeAgent('router-route', [], config.requiredPresetId)
+    const harness = applyHarness([matching])
+    expect(harness.listModels).not.toHaveBeenCalled()
+    await callListener(
+      harness.listeners,
+      'agent/pre-step',
+      { agent: matching, signal: new AbortController().signal },
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+    expect(harness.listModels).toHaveBeenCalledWith(config.lunaProvider)
+    expect(harness.listModels).toHaveBeenCalledWith(config.solProvider)
+    expect(harness.resolveModelInfo).toHaveBeenCalledTimes(2)
+  })
+
+  it('detaches the route guard when a blank session switches away from the Router preset', async () => {
+    const matching = fakeAgent('switched-preset', [], config.requiredPresetId)
+    const harness = applyHarness([matching])
+    matching.session.append('agent-preset/selected', { agentPreset: 'standard' })
+    await callListener(harness.listeners, 'session/event', matching.session, matching.session.events.at(-1))
+    const request = await callListener(
+      harness.listeners,
+      'agent/request',
+      { agent: matching },
+      async () => ({ provider: 'another-provider', model: 'another-model' }),
+    )
+    expect(request).toEqual({ provider: 'another-provider', model: 'another-model' })
+    expect(harness.listModels).not.toHaveBeenCalled()
   })
 
   it('allows both stages to be configured as medium or high while keeping the two-call ceiling', async () => {

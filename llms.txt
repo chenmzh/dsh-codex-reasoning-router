@@ -20,7 +20,8 @@ HARD INVARIANTS:
 - Any Sol tool-call block is rejected and never dispatched.
 - Luna owns tools, files, MCP, skills, subagents, verification, and final answer.
 - Plugin attaches only to a root session whose durable preset id matches.
-- Main route must be openai-codex/gpt-5.6-luna; mismatch is blocked, not rewritten.
+- Configured-model validation and the main-route guard run only for that matching preset; other presets are unrestricted by this plugin.
+- On the matching preset, the main route must be openai-codex/gpt-5.6-luna; mismatch is blocked, not rewritten.
 - Consultation state is restored from append-only session events.
 
 REQUIREMENTS:
