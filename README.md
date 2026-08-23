@@ -96,8 +96,13 @@ Every Sol call is a hand-built `ctx.llm.stream` request with:
 - the configured Sol provider/model;
 - only the static advisor prompt and one compact evidence message;
 - no `tools` property;
-- no session continuation identity;
+- no provider session continuation identity;
 - no filesystem, shell, MCP, skill, web, or subagent interface.
+
+When a Sol call belongs to a Luna root session, the router adds usage-only
+correlation metadata consumed by the dsh-codex analytics adapter. This links the
+request to the Luna session without forwarding a `sessionId` to the provider.
+Standalone calls without an owning root remain under the `standalone` session.
 
 The response is consumed directly with `BlockAssembler`. It never enters the DSH agent loop or tool dispatcher. A returned `tool-call` block is a `SolProtocolError`; it is never executed. Only visible text becomes an Advisory Packet for Luna.
 
@@ -119,7 +124,7 @@ Fingerprints hash normalized goal, problem, and stable file/error/test anchors. 
 
 ## Compatibility
 
-The plugin uses the existing `openai-codex` adapter and credential lifecycle. It does not read OAuth files or tokens and does not call private ChatGPT endpoints. Sol one-shots intentionally omit `sessionId`; normal Luna turns remain owned by dsh-codex and retain their standard WebSocket context reuse and native/basic compaction behavior.
+The plugin uses the existing `openai-codex` adapter and credential lifecycle. It does not read OAuth files or tokens and does not call private ChatGPT endpoints. Sol one-shots intentionally omit the provider-facing `sessionId`; dsh-codex still records usage under the owning Luna session when usage-only correlation metadata is present. Normal Luna turns remain owned by dsh-codex and retain their standard WebSocket context reuse and native/basic compaction behavior.
 
 The profile bundle mounts the Router during host boot so its durable event vocabulary is available before cold session-history reads. `requiredPresetId` still gates every agent integration: only the opt-in preset receives the scoped system section, tool, model validation, and routing checks. It does not replace system prompt sections, contexts, the normal tool catalog, skills, MCP, subagent orchestration, compaction, permissions, or the agent loop. Subagents do not receive `sol_consult` from this plugin.
 

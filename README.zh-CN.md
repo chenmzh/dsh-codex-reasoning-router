@@ -97,7 +97,7 @@ pnpm pack --dry-run
 
 ## 安全边界
 
-- Sol 请求不含 `tools` 和 `sessionId`。
+- Sol 请求不含 `tools` 和 provider-facing `sessionId`；若属于 Luna root session，统计适配器会通过独立的 usage-only 元数据归属到该会话。
 - Sol 返回 tool-call 时会报协议错误，绝不执行。
 - Router 由 Profile bundle 在 Host 启动时加载，以便冷读取历史会话前注册持久化事件类型；`requiredPresetId` 仍保证只有 `luna-sol-reasoning-router` 获得提示词、工具、模型校验和路由约束。
 - 在该 preset 中，非 Luna 主路由会被阻止，不会被插件偷偷改写。

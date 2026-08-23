@@ -88,6 +88,7 @@ export class ReasoningRouter {
         effort: this.config.initialSolReasoning,
         prompt: initialPrompt(request, agent.session.header.cwd),
         signal,
+        usageSessionId: String(agent.session.id),
       })
       agent.session.append('reasoning-router/initial-consult', { status: 'succeeded', advisory: advice })
       log(agent.ctx, 'info', 'reasoning-router/initial-consult: Sol ' + this.config.initialSolReasoning + ' consulted; Luna resumes execution')
@@ -146,6 +147,7 @@ export class ReasoningRouter {
         effort,
         prompt: blockerPrompt(input, current?.mediumAdvice),
         signal,
+        usageSessionId: String(agent.session.id),
       })
       const state = nextState(current, fingerprint, advisory)
       agent.session.append(

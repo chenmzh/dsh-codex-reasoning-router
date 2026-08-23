@@ -154,6 +154,20 @@ describe('reasoning router invariants', () => {
     expect(captured?.model).toBe('gpt-5.6-sol')
   })
 
+  it('correlates Sol usage to the Luna session without adding provider session identity', async () => {
+    type UsageTaggedOptions = GenerateOptions & { usageSessionId?: string; usagePurpose?: string }
+    let captured: UsageTaggedOptions | undefined
+    const advisor = advisorWith(async function* (options) {
+      captured = options as UsageTaggedOptions
+      yield* chunks({ type: 'text', text: '<sol_advisory>ok</sol_advisory>' })
+    })
+    const agent = fakeAgent('usage-correlation')
+    await new ReasoningRouter(config, advisor).beforeFirstStep(agent, [user('do work')], new AbortController().signal)
+    expect(captured?.sessionId).toBeUndefined()
+    expect(captured?.usageSessionId).toBe('usage-correlation')
+    expect(captured?.usagePurpose).toBe('sol-advisory')
+  })
+
   it('rejects xhigh/max at runtime even from an untyped caller', async () => {
     let calls = 0
     const advisor = advisorWith(async function* () {

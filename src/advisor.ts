@@ -4,6 +4,7 @@ import {
   BlockAssembler,
   createUserMessage,
   ReasoningEffortId,
+  type GenerateOptions,
 } from '@deepseek-ai/dsh-llm'
 import { INITIAL_ADVISORY_FORMAT, PACKAGE_NAME, SOL_ADVISOR_SYSTEM_PROMPT } from './constants.ts'
 import type { AdvisoryRequest, Config, SolConsultInput } from './types.ts'
@@ -13,6 +14,11 @@ export interface AdvisorScope {
 }
 
 export const advisorScope = new AsyncLocalStorage<AdvisorScope>()
+
+interface SolUsageCorrelationHint {
+  readonly usageSessionId?: string
+  readonly usagePurpose?: string
+}
 
 export class SolProtocolError extends Error {
   constructor(message: string) {
@@ -45,7 +51,7 @@ export class SolAdvisor {
     const signal = combinedSignal(request.signal, this.config.solTimeoutMs)
 
     await advisorScope.run({ purpose: 'sol-advisory' }, async () => {
-      const stream = this.ctx.llm.stream({
+      const options: GenerateOptions & SolUsageCorrelationHint = {
         provider: this.config.solProvider,
         model: this.config.solModel,
         reasoningEffort: ReasoningEffortId(request.effort),
@@ -56,7 +62,11 @@ export class SolAdvisor {
         })],
         maxTokens: this.config.solAdviceMaxTokens,
         signal,
-      })
+        ...request.usageSessionId === undefined
+          ? {}
+          : { usageSessionId: request.usageSessionId, usagePurpose: 'sol-advisory' },
+      }
+      const stream = this.ctx.llm.stream(options)
       for await (const chunk of stream) assembler.push(chunk)
     })
 

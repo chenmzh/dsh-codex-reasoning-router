@@ -38,6 +38,8 @@ export interface AdvisoryRequest {
   effort: SolReasoningEffort
   prompt: string
   signal?: AbortSignal
+  /** Usage-only correlation; never becomes the provider's session identity. */
+  usageSessionId?: string
 }
 
 export interface AdvisoryResult {
