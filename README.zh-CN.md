@@ -2,90 +2,128 @@
 
 [English](./README.md) | 简体中文 | [AI / LLM 上下文](./llms.txt)
 
-DeepSeek Harness（`dsh`）的 Luna + Sol 混合推理 preset：
+DeepSeek Harness（DSH）的可组合多模型 Agent Team 插件。它不再要求切换到专用 preset，可以与 Standard、Code 或用户自定义 preset 一起使用。
 
-- `openai-codex/gpt-5.6-luna` 是唯一执行 Agent，拥有 Standard preset 的工具、Skills、MCP、子 Agent、文件和终端能力。
-- `openai-codex/gpt-5.6-sol` 是无工具 Advisor，只接收压缩后的证据并返回短建议。
-- Sol 不接触工作区、不调用工具、不创建子 Agent、不直接回复用户。
-- 新会话首轮默认咨询 Sol；困难阻塞点可由 Luna 调用 `sol_consult`。
-- 同一问题最多两次咨询：默认 `medium -> high`；失败默认 fail-open，不阻塞 Luna。
+默认团队：
 
-一句话：**Luna 负责行动，Sol 负责建议。**
+- `brain`：无工具深度推理，默认 `openai-codex/gpt-5.6-sol` + `max`。
+- `coordinator`：无工具任务拆解、分派与集成建议，默认 Sol + `high`。
+- `worker`：拥有当前 preset 工具的真实 DSH 子代理，默认 `gpt-5.6-luna` + `max`，绝对深度上限为 2。
+- `agent_team_catalog`：从当前用户已注册的 DSH provider 读取可用模型，以及每个模型真实支持的 reasoning effort。
+- `agent_team_run`：按角色运行 advisory 或子代理。
 
-## 依赖
+旧版 `luna-sol-reasoning-router` preset 与 `sol_consult` 状态机仍然保留，但默认不启用路由锁定。
 
-| 类型 | 要求 |
-|---|---|
-| 宿主 | 当前版 DeepSeek Harness |
-| Codex 适配器 | `dsh-codex >= 0.2.3`，已安装并完成认证 |
-| 模型 | 可访问 `openai-codex/gpt-5.6-luna` 与 `openai-codex/gpt-5.6-sol` |
-| 源码开发 | Node.js 22、pnpm；本项目已在 Node 22.23 / pnpm 11.7 验证 |
-| DSH peer APIs | 见 [`package.json`](./package.json) 的 `peerDependencies` |
+## 安装
 
-插件复用 `dsh-codex` 的认证和 provider 生命周期，不读取 OAuth 文件或 token，也不调用私有 ChatGPT 接口。
-
-## 部署
-
-以下命令中的 `/path/to/.dsh` 改为 DSH home；默认通常是 `~/.dsh`。
-
-1. 安装并认证 `dsh-codex`：
+先安装并认证所需模型 provider，例如 `dsh-codex`，然后安装本插件：
 
 ```bash
 pnpm dsh plugin --profile web add dsh-codex
+pnpm dsh plugin --profile web add link:/absolute/path/to/dsh-codex-reasoning-router
 ```
 
-2. 通过 DSH plugin 命令从 GitHub 安装 Router；该命令会自动把 Host bundle 加入 `dsh.profile.bundles`：
+也可以从 GitHub 安装：
 
 ```bash
 pnpm dsh plugin --profile web add github:chenmzh/dsh-codex-reasoning-router
 ```
 
-3. 复制 preset：
-
-```bash
-cp -R /path/to/.dsh/profiles/web/node_modules/dsh-codex-reasoning-router/preset/luna-sol-reasoning-router /path/to/.dsh/.agent-presets/
-```
-
-本地开发版本可改用：
-
-```bash
-pnpm dsh plugin --profile web add link:/absolute/path/to/dsh-codex-reasoning-router
-cp -R /absolute/path/to/dsh-codex-reasoning-router/preset/luna-sol-reasoning-router /path/to/.dsh/.agent-presets/
-```
-
-4. 重启 DSH，新建会话并显式选择 **Luna + Sol Reasoning Router**；模型选择 `openai-codex / gpt-5.6-luna`。
-
-这个 preset 不修改默认 preset，也不会静默切换主模型。Host bundle 会在冷读取历史会话前注册 Router 持久化事件；插件只会在实际使用 `luna-sol-reasoning-router` 的 root session 上挂提示词与工具、校验模型目录并限制主路由，其他 preset 可以自由尝试可用的 provider/model。修改配置后必须新建会话。
+重启 DSH 并新建会话。0.2 起无需复制或选择专用 preset；插件默认叠加到任何 preset。只有继续使用旧 Luna+Sol 路由模式时，才需要复制 [`preset/luna-sol-reasoning-router`](./preset/luna-sol-reasoning-router)。
 
 ## 配置
 
-Host 配置文件：[`cordis.patch.yml`](./cordis.patch.yml)
+默认配置见 [`cordis.patch.yml`](./cordis.patch.yml)：
 
 ```yaml
-initialSolReasoning: medium   # medium | high
-escalatedSolReasoning: high  # medium | high
-solAdviceMaxTokens: 2000     # 256..4096
-solTimeoutMs: 30000          # 1000..120000
+teamEnabled: true
+presetIds: []                 # 空数组 = 所有 preset；也可只写 standard/code/自定义 id
+roles:
+  - id: brain
+    kind: advisory            # 无工具、一次性推理调用
+    description: Deep reasoning
+    provider: openai-codex
+    model: gpt-5.6-sol
+    reasoningEffort: max
+    maxTokens: 3000
+
+  - id: coordinator
+    kind: advisory
+    description: Coordinate work
+    provider: openai-codex
+    model: gpt-5.6-sol
+    reasoningEffort: high
+
+  - id: worker
+    kind: subagent            # 真正的 DSH 子代理，继承当前 preset 的组合
+    description: Implement and verify
+    provider: openai-codex
+    model: gpt-5.6-luna
+    reasoningEffort: max
+    subagentProvider: spawn
+    maxDepth: 2               # 绝对深度：root=0，子代依次为 1、2……
+    toolDeny: [web_search]     # 可选；也可用 toolAllow
+```
+
+角色数组可以任意增删，`id` 必须是小写字母开头的 kebab/snake 标识。字段说明：
+
+| 字段 | 含义 |
+|---|---|
+| `kind` | `advisory` 为无工具推理；`subagent` 为有工具的真实子代理 |
+| `provider` / `model` | 省略时继承调用者；填写时必须存在于用户的实时模型目录 |
+| `reasoningEffort` | 省略时使用模型默认；填写时必须是该模型目录公开的 effort |
+| `systemPrompt` | 可选角色 persona；省略时使用内置角色提示 |
+| `subagentProvider` | `spawn`、`fork` 或宿主已注册的其他 provider |
+| `maxDepth` | 子代理树的绝对深度上限，不是“还能递归几层” |
+| `toolAllow` / `toolDeny` | DSH 原生子代理工具可见性过滤，仅用于 `subagent` |
+
+模型名和 effort 不靠插件硬编码猜测。运行时先通过 `ctx.llm.listProviders()`、`listModels()` 与 `resolveModelInfo()`读取当前用户目录；无效组合在发起模型请求或创建子代理前报错。会话中的 Agent 也可以调用 `agent_team_catalog` 查看同一目录。
+
+## 与其他 preset 组合
+
+默认 `presetIds: []`，所以只需选择原本想用的 preset：
+
+```text
+Standard preset + agent team
+Code preset     + agent team
+自定义 preset   + agent team
+```
+
+子代理由 DSH 的 in-process provider 创建，自动继承父 Agent 的 preset composition、工作区、策略与可见工具，再应用角色自己的模型、effort、persona、工具过滤和深度上限。
+
+若只想让插件出现在指定 preset：
+
+```yaml
+presetIds: [standard, code, my-review-preset]
+```
+
+## 旧版 Luna + Sol 路由
+
+要恢复 0.1 行为，在配置中设置：
+
+```yaml
+requiredPresetId: luna-sol-reasoning-router
+lunaProvider: openai-codex
+lunaModel: gpt-5.6-luna
+solProvider: openai-codex
+solModel: gpt-5.6-sol
+initialSolReasoning: medium
+escalatedSolReasoning: high
 initialConsultEnabled: true
 failOpen: true
 ```
 
-建议保留 `medium -> high`、`initialConsultEnabled: true`、`failOpen: true`。当使用该 preset 的 root session 开始工作时，插件才会校验配置的 provider/model；缺失模型会报错且不会回退。Provider、模型和 `requiredPresetId` 是该 preset 的架构边界，除非你同步修改并验证插件，否则不要更改。
+然后复制并选择随包提供的 preset。旧模式继续保证：Sol 无工具、主 Luna 路由被校验、同一 blocker 最多两次咨询、状态写入 session event。`requiredPresetId: ''`（0.2 默认）表示完全关闭旧路由锁定，不影响 Agent Team。
 
-## 工作流
+## 安全与边界
 
-```text
-首条用户消息 -> Sol medium 建议 -> Luna 执行
-阻塞问题 X   -> Sol medium -> Luna 验证
-同一问题 X   -> 提供上次建议评估 -> Sol high -> Luna 验证
-同一问题 X   -> consultation exhausted；不再调用模型
-```
-
-咨询结果写入 session event，恢复会话后仍保留升级状态。只保存短 Advisory Packet，不保存 Sol 的私有推理。
+- Advisory 角色的请求不含工具；如果模型仍返回 tool-call，插件会报错并且绝不执行。
+- Worker 使用 DSH 原生 subagent runtime；`maxDepth` 由 provider 在每次创建时强制检查。
+- 工具过滤是组合可见性，不是新的安全沙箱；实际权限仍由 DSH sandbox/approval policy 决定。
+- 角色模型和 effort 在调用前对实时目录做精确验证，不静默降级、不自动换模型。
+- 子代理的 reasoning effort 通过 agent-scoped `installModelSelection` 在首次请求前安装，不依赖模型名猜测。
 
 ## 开发与验证
-
-开发依赖中的 `dsh-codex` 使用相邻目录 `../dsh-codex`。准备该 checkout 后运行：
 
 ```bash
 pnpm install --offline
@@ -93,17 +131,7 @@ pnpm run check
 pnpm pack --dry-run
 ```
 
-`pnpm run check` 依次执行 TypeScript 类型检查、Vitest 和构建。
-
-## 安全边界
-
-- Sol 请求不含 `tools` 和 provider-facing `sessionId`；若属于 Luna root session，统计适配器会通过独立的 usage-only 元数据归属到该会话。
-- Sol 返回 tool-call 时会报协议错误，绝不执行。
-- Router 由 Profile bundle 在 Host 启动时加载，以便冷读取历史会话前注册持久化事件类型；`requiredPresetId` 仍保证只有 `luna-sol-reasoning-router` 获得提示词、工具、模型校验和路由约束。
-- 在该 preset 中，非 Luna 主路由会被阻止，不会被插件偷偷改写。
-- 网络或 provider 失败在默认 `failOpen: true` 下只记录警告，Luna 继续执行。
-
-完整实现细节、事件名、公开 DSH API 清单见 [English README](./README.md)。AI 应优先读取 [`llms.txt`](./llms.txt)。
+当前测试覆盖旧路由不变量以及目录读取、effort 校验、advisory 无工具、worker 模型/effort、工具过滤与绝对深度传递。
 
 ## 许可证
 

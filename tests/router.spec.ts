@@ -27,6 +27,9 @@ import {
 installRouterEvents()
 
 const config: Config = {
+  teamEnabled: false,
+  presetIds: [],
+  roles: [],
   requiredPresetId: 'luna-sol-reasoning-router',
   lunaProvider: 'openai-codex',
   lunaModel: 'gpt-5.6-luna',

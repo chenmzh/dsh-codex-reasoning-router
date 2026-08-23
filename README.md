@@ -2,161 +2,137 @@
 
 [简体中文](./README.zh-CN.md) | English | [AI / LLM context](./llms.txt)
 
-> DeepSeek Harness (`dsh`) preset and plugin: GPT-5.6 Luna executes with the full Standard toolset; tool-less GPT-5.6 Sol supplies compact reasoning advice.
+A composable multi-model Agent Team plugin for DeepSeek Harness (DSH). Version 0.2 no longer requires a dedicated preset: it layers onto Standard, Code, or a user-defined preset.
 
-**Luna owns action. Sol owns advice.**
+Default roles:
 
-This DeepSeek Harness plugin keeps `openai-codex / gpt-5.6-luna` as the root execution agent and uses `openai-codex / gpt-5.6-sol` only for short, independent reasoning-advisor calls.
+- `brain`: tool-less deep reasoning, using `openai-codex/gpt-5.6-sol` at `max`.
+- `coordinator`: tool-less decomposition and integration advice, using Sol at `high`.
+- `worker`: a real tool-capable DSH subagent, using `gpt-5.6-luna` at `max`, with absolute `maxDepth: 2`.
+- `agent_team_catalog`: reads the current user's registered providers, models, and model-specific reasoning efforts.
+- `agent_team_run`: runs any configured advisory or subagent role.
 
-Sol is not a second coding agent. Sol never touches the workspace, never receives tools, never creates subagents, and never answers the user directly. Luna owns every tool, file change, test, skill, MCP call, subagent, permission decision, and final response.
+The legacy `luna-sol-reasoning-router` preset and durable `sol_consult` state machine remain available, but route locking is disabled by default.
 
-## Requirements and preset installation
+## Install
 
-Requirements:
-
-- a current DeepSeek Harness installation;
-- `dsh-codex >= 0.2.3`, installed and authenticated;
-- access to `openai-codex/gpt-5.6-luna` and `openai-codex/gpt-5.6-sol`;
-- Node.js 22 and pnpm for source development (verified with Node 22.23 and pnpm 11.7).
-
-Install and authenticate the current `dsh-codex` first. Install this package through the DSH plugin command so its host bundle is added to `dsh.profile.bundles`, then copy the shipped preset directory into DSH home:
+Install and authenticate the model provider first, then add this plugin:
 
 ```bash
 pnpm dsh plugin --profile web add dsh-codex
 pnpm dsh plugin --profile web add link:/absolute/path/to/dsh-codex-reasoning-router
-cp -R /absolute/path/to/dsh-codex-reasoning-router/preset/luna-sol-reasoning-router /path/to/.dsh/.agent-presets/
 ```
 
-Install directly from GitHub instead of a local checkout:
+Or install from GitHub:
 
 ```bash
 pnpm dsh plugin --profile web add github:chenmzh/dsh-codex-reasoning-router
-cp -R /path/to/.dsh/profiles/web/node_modules/dsh-codex-reasoning-router/preset/luna-sol-reasoning-router /path/to/.dsh/.agent-presets/
 ```
 
-For a published package, pass `dsh-codex-reasoning-router` to the same plugin command and copy the preset from its installed package. Restart DSH, then explicitly select **Luna + Sol Reasoning Router** for a new session. The existing default preset is not changed.
-
-The preset is a complete copy of the official Standard composition, preserving its normal tools, Skills, MCP, compaction, and subagent surface. The profile bundle mounts the Router once on the host plane; the preset identity activates its agent integrations. The plugin also checks the effective durable session preset via the public `resolveSessionPreset` API and reconciles its attachment when a blank session switches presets; accidental global loading does not attach it to other presets. Model-catalog validation is deferred until a root using this preset starts a step, so another preset can use any available provider/model without being checked or blocked by this plugin.
-
-DSH presets do not own the host model route. Select `openai-codex / gpt-5.6-luna` before using this preset. If a saved route differs, the plugin stops that session with a diagnostic and never silently switches the main model. Sessions using another preset do not receive this route guard.
+Restart DSH and create a new session. Since 0.2, no preset copy or preset switch is needed. Copy [`preset/luna-sol-reasoning-router`](./preset/luna-sol-reasoning-router) only when enabling the legacy route-guard workflow.
 
 ## Configuration
 
-Host configuration lives in [`cordis.patch.yml`](./cordis.patch.yml):
+See [`cordis.patch.yml`](./cordis.patch.yml) for the complete default:
 
 ```yaml
-- id: reasoning-router
-  name: dsh-codex-reasoning-router
-  inject: [openAICodex]
-  config:
-    requiredPresetId: luna-sol-reasoning-router
-    lunaProvider: openai-codex
-    lunaModel: gpt-5.6-luna
-    solProvider: openai-codex
-    solModel: gpt-5.6-sol
-    initialSolReasoning: medium
-    escalatedSolReasoning: high
-    solAdviceMaxTokens: 2000
-    solTimeoutMs: 30000
-    initialConsultEnabled: true
-    failOpen: true
+teamEnabled: true
+presetIds: []                 # empty = all presets
+roles:
+  - id: brain
+    kind: advisory            # tool-less one-shot reasoning
+    description: Deep reasoning
+    provider: openai-codex
+    model: gpt-5.6-sol
+    reasoningEffort: max
+    maxTokens: 3000
+
+  - id: coordinator
+    kind: advisory
+    description: Coordinate work
+    provider: openai-codex
+    model: gpt-5.6-sol
+    reasoningEffort: high
+
+  - id: worker
+    kind: subagent            # real DSH child inheriting the current preset
+    description: Implement and verify
+    provider: openai-codex
+    model: gpt-5.6-luna
+    reasoningEffort: max
+    subagentProvider: spawn
+    maxDepth: 2               # absolute: root=0, descendants=1,2,...
+    toolDeny: [web_search]     # optional; toolAllow is also supported
 ```
 
-Both effort fields accept only `medium` or `high` and default to `medium -> high`. The narrow domain type and runtime guard reject `xhigh` and `max`. When a root using this preset starts, the plugin checks the provider catalog and exact model metadata; a missing configured model is an error, not a fallback. That check is not performed for other presets.
+Roles may be added, removed, or renamed. Role ids must begin with a lowercase letter and contain lowercase letters, digits, `_`, or `-`.
 
-Confirm current IDs with the DSH model picker (`/model`) or the public LLM registry used by a diagnostic plugin:
+| Field | Meaning |
+|---|---|
+| `kind` | `advisory` is tool-less; `subagent` starts a real delegated agent |
+| `provider` / `model` | Omit both to inherit the caller; explicit values must exist in the live user catalog |
+| `reasoningEffort` | Omit for model/provider default; explicit values must be offered by that exact model |
+| `systemPrompt` | Optional role persona |
+| `subagentProvider` | `spawn`, `fork`, or another provider registered by the host |
+| `maxDepth` | Absolute delegation-tree cap, not a relative remaining-depth count |
+| `toolAllow` / `toolDeny` | Native DSH child tool visibility filters for subagent roles |
 
-```ts
-await ctx.llm.listModels('openai-codex')
-await ctx.llm.resolveModelInfo('openai-codex', 'gpt-5.6-luna')
-await ctx.llm.resolveModelInfo('openai-codex', 'gpt-5.6-sol')
-```
+The plugin does not guess model capabilities. It reads `ctx.llm.listProviders()`, `listModels()`, and `resolveModelInfo()` at runtime. Invalid model/effort combinations fail before provider dispatch. `agent_team_catalog` exposes the same live directory to the agent.
 
-At implementation time, the installed pi-ai catalog contains `gpt-5.6-luna` and `gpt-5.6-sol`.
+## Preset composition
 
-## Request lifecycle
+With the default `presetIds: []`, select whichever preset you already want:
 
 ```text
-WAIT_FIRST_USER
-  -> SOL_INITIAL_MEDIUM
-  -> LUNA_EXECUTING
-       -> new blocker: SOL_MEDIUM -> LUNA_EXECUTING
-       -> same blocker, medium evaluated: SOL_HIGH -> LUNA_EXECUTING
-       -> same blocker again: ESCALATION_EXHAUSTED (no model call)
+Standard preset + agent team
+Code preset     + agent team
+custom preset   + agent team
 ```
 
-`agent/pre-step` is an awaited public waterfall. On a root session's first direct user message, the listener awaits Sol medium, creates a plugin-sourced user context containing only the Advisory Packet, and then returns `kind: enter`. Only after that does the agent loop log the step, assemble the prompt/tools, and make Luna's first request. Failure appends a warning event and returns the original messages when `failOpen` is enabled.
+In-process children inherit their parent's preset composition, workspace, delegated policy, and tools. The role then applies its own route, effort, persona, optional tool filter, and depth cap.
 
-The later `sol_consult` tool has a fixed schema and is registered once in the root agent scope. Its second call for the same fingerprint requires `medium_advice_evaluation`; this prevents transport failure or an untried suggestion from being treated as grounds for high escalation.
+To limit the plugin to selected presets:
 
-## Why Sol cannot act
+```yaml
+presetIds: [standard, code, my-review-preset]
+```
 
-Every Sol call is a hand-built `ctx.llm.stream` request with:
+## Legacy Luna + Sol router
 
-- the configured Sol provider/model;
-- only the static advisor prompt and one compact evidence message;
-- no `tools` property;
-- no provider session continuation identity;
-- no filesystem, shell, MCP, skill, web, or subagent interface.
+Restore the 0.1 behavior with:
 
-When a Sol call belongs to a Luna root session, the router adds usage-only
-correlation metadata consumed by the dsh-codex analytics adapter. This links the
-request to the Luna session without forwarding a `sessionId` to the provider.
-Standalone calls without an owning root remain under the `standalone` session.
+```yaml
+requiredPresetId: luna-sol-reasoning-router
+lunaProvider: openai-codex
+lunaModel: gpt-5.6-luna
+solProvider: openai-codex
+solModel: gpt-5.6-sol
+initialSolReasoning: medium
+escalatedSolReasoning: high
+initialConsultEnabled: true
+failOpen: true
+```
 
-The response is consumed directly with `BlockAssembler`. It never enters the DSH agent loop or tool dispatcher. A returned `tool-call` block is a `SolProtocolError`; it is never executed. Only visible text becomes an Advisory Packet for Luna.
+Copy and select the shipped preset. The old mode still provides a tool-less Sol advisor, validates the Luna root route, limits one blocker to two successful consultations, and restores escalation from durable session events. The 0.2 default `requiredPresetId: ''` disables only the legacy guard, not Agent Team.
 
-## Recursion and durable state
+## Safety and runtime boundaries
 
-Internal calls run under an `AsyncLocalStorage` marker whose purpose is `sol-advisory`. The `llm/stream` hook checks this marker and delegates immediately. It does not infer internal calls from the model name. DSH rc.6 exposes only `compaction | session-title` in `GenerateOptions.purpose`, so a custom purpose is not forged into that public field.
+- Advisory requests have no tools. A returned tool call is rejected and never dispatched.
+- Workers use the native DSH subagent runtime; the provider enforces `maxDepth` on every start.
+- Tool filters are composition visibility, not a new security sandbox. DSH sandbox and approval policy remain authoritative.
+- Explicit model and effort selections are validated exactly; there is no silent fallback or model rewrite.
+- Child reasoning effort is installed with agent-scoped `installModelSelection` before the child request.
 
-Consultation results are append-only session events:
-
-- `reasoning-router/initial-consult`
-- `reasoning-router/consult-medium`
-- `reasoning-router/consult-high`
-- `reasoning-router/consult-failed`
-- `reasoning-router/escalation-exhausted`
-
-The issue-state fold reads successful medium/high events from the durable log. A process-local map is not the source of truth. Failed network/provider calls log `consult-failed` but do not set `mediumUsed` or `highUsed`. Resume reconstructs the state; compaction may replace model-visible surface nodes but does not erase these log-only events. Only compact Advisory Packets—not private reasoning—are retained.
-
-Fingerprints hash normalized goal, problem, and stable file/error/test anchors. Attempts, the question wording, timestamps, and random values are excluded.
-
-## Compatibility
-
-The plugin uses the existing `openai-codex` adapter and credential lifecycle. It does not read OAuth files or tokens and does not call private ChatGPT endpoints. Sol one-shots intentionally omit the provider-facing `sessionId`; dsh-codex still records usage under the owning Luna session when usage-only correlation metadata is present. Normal Luna turns remain owned by dsh-codex and retain their standard WebSocket context reuse and native/basic compaction behavior.
-
-The profile bundle mounts the Router during host boot so its durable event vocabulary is available before cold session-history reads. `requiredPresetId` still gates every agent integration: only the opt-in preset receives the scoped system section, tool, model validation, and routing checks. It does not replace system prompt sections, contexts, the normal tool catalog, skills, MCP, subagent orchestration, compaction, permissions, or the agent loop. Subagents do not receive `sol_consult` from this plugin.
-
-## Observability and verification
-
-The event names above are visible in the session log, and concise secret-free info/warning messages report consultations. To exercise escalation:
-
-1. Start a new Luna root session and send one user message; confirm `initial-consult` precedes the first Luna assistant chunk.
-2. Ask Luna to call `sol_consult` for a concrete blocker; confirm `consult-medium`.
-3. Call again with the same goal/problem/evidence anchors and a non-empty `medium_advice_evaluation`; confirm `consult-high`.
-4. Call a third time; confirm `escalation-exhausted` and no provider request.
-5. Resume the session and repeat step 4; exhaustion must remain restored.
-
-Development checks:
+## Development
 
 ```bash
 pnpm install --offline
-pnpm run typecheck
-pnpm run test
-pnpm run build
+pnpm run check
+pnpm pack --dry-run
 ```
 
-## Public DSH APIs used
+The test suite covers both the legacy router invariants and the new live catalog, effort validation, tool-less advisory, worker route/effort, tool filter, and absolute-depth behavior.
 
-- `ctx.llm.listModels`, `resolveModelInfo`, and `stream`
-- awaited `agent/pre-step` and `agent/request` waterfalls
-- `agent/created` and `agent/disposed`
-- `ctx.agents.roots()` and agent-scoped `agent.ctx`
-- `resolveSessionPreset` from `@deepseek-ai/dsh-agent-presets`
-- `agent.ctx.systemPrompt.section`
-- `agent.ctx.tools.register` with `defineTool`
-- `Session.append`, `Session.events`, and the extensible `KNOWN_SESSION_EVENT_TYPES`
-- `createUserMessage`, `BlockAssembler`, and `ReasoningEffortId`
+## License
 
-No DSH private source, private runtime object, credential file, or undocumented backend endpoint is used.
+Apache-2.0. See [`LICENSE`](./LICENSE).

@@ -1,6 +1,29 @@
 import type { SolReasoningEffort } from './constants.ts'
 
+export type TeamRoleKind = 'advisory' | 'subagent'
+
+export interface TeamRoleConfig {
+  id: string
+  kind: TeamRoleKind
+  description: string
+  /** Omit provider/model to inherit the calling agent's current route. */
+  provider?: string
+  model?: string
+  /** Omit to use the selected model's configured/provider default. */
+  reasoningEffort?: string
+  maxTokens?: number
+  systemPrompt?: string
+  subagentProvider?: string
+  maxDepth?: number
+  toolAllow?: string[]
+  toolDeny?: string[]
+}
+
 export interface Config {
+  teamEnabled: boolean
+  /** Empty means the team tools compose with every preset. */
+  presetIds: string[]
+  roles: TeamRoleConfig[]
   requiredPresetId: string
   lunaProvider: string
   lunaModel: string

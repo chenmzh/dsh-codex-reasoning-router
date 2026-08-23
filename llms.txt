@@ -1,69 +1,49 @@
 # dsh-codex-reasoning-router
 
-PURPOSE: DeepSeek Harness (DSH) plugin + preset. Luna executes; tool-less Sol advises.
-REPO: https://github.com/chenmzh/dsh-codex-reasoning-router
+PURPOSE: Composable multi-model Agent Team plugin for DeepSeek Harness, with legacy Luna/Sol router compatibility.
+VERSION: 0.2.0
 LICENSE: Apache-2.0
 
-RUNTIME:
-- root executor = openai-codex/gpt-5.6-luna
-- advisor = openai-codex/gpt-5.6-sol
-- preset id = luna-sol-reasoning-router
-- plugin id/name = reasoning-router / dsh-codex-reasoning-router
-- first user turn: Sol advice completes before Luna request
-- later blocker: Luna may call sol_consult
-- same issue: at most 2 successful calls; default effort medium then high
-- default provider failure behavior: fail open; Luna continues
+DEFAULT TEAM:
+- brain: advisory, openai-codex/gpt-5.6-sol, max, no tools
+- coordinator: advisory, openai-codex/gpt-5.6-sol, high, no tools
+- worker: real spawn subagent, openai-codex/gpt-5.6-luna, max, absolute maxDepth 2
+
+TOOLS:
+- agent_team_catalog: reads live registered providers, models, supported efforts, and defaults
+- agent_team_run: selects a configured role and runs advisory or subagent execution
+- sol_consult: legacy preset-bound blocker advisor
+
+COMPOSITION:
+- teamEnabled=true and presetIds=[] means every preset receives team tools.
+- presetIds limits the team to named presets.
+- subagent roles inherit the parent's preset composition, workspace, tools, and delegated policy.
+- role config may override provider, model, reasoningEffort, persona, tools, subagent provider, maxTokens, and maxDepth.
+- omitted provider/model inherits the caller; omitted reasoningEffort uses the model/provider default.
 
 HARD INVARIANTS:
-- Sol receives no tools and no sessionId.
-- Sol never edits, executes, delegates, or replies to the user.
-- Any Sol tool-call block is rejected and never dispatched.
-- Luna owns tools, files, MCP, skills, subagents, verification, and final answer.
-- Plugin attaches only to a root session whose durable preset id matches.
-- Configured-model validation and the main-route guard run only for that matching preset; other presets are unrestricted by this plugin.
-- On the matching preset, the main route must be openai-codex/gpt-5.6-luna; mismatch is blocked, not rewritten.
-- Consultation state is restored from append-only session events.
+- Explicit models must appear in ctx.llm.listModels(provider).
+- Explicit efforts must appear in resolveModelInfo(provider, model).reasoning.efforts.
+- Advisory calls receive no tools; returned tool calls are rejected and never executed.
+- Subagent maxDepth is an absolute tree cap enforced by the DSH provider.
+- Child effort is installed through agent-scoped installModelSelection.
+- No silent fallback and no automatic model rewrite.
 
-REQUIREMENTS:
-- current DeepSeek Harness
-- authenticated dsh-codex >=0.2.3
-- model access: gpt-5.6-luna + gpt-5.6-sol on openai-codex
-- development only: Node.js 22 + pnpm; adjacent ../dsh-codex checkout for link devDependency
-- exact peer APIs: package.json#peerDependencies
-
-INSTALL_FROM_GITHUB:
-1. pnpm dsh plugin --profile web add dsh-codex
-2. pnpm dsh plugin --profile web add github:chenmzh/dsh-codex-reasoning-router
-3. copy <DSH_HOME>/profiles/web/node_modules/dsh-codex-reasoning-router/preset/luna-sol-reasoning-router to <DSH_HOME>/.agent-presets/
-4. restart DSH
-5. create a new session; select preset "Luna + Sol Reasoning Router" and model openai-codex/gpt-5.6-luna
-The plugin command adds this package to dsh.profile.bundles so durable Router events register before cold history reads.
-
-CONFIG: cordis.patch.yml (host bundle; requiredPresetId gates agent behavior)
-- initialSolReasoning: medium|high; default medium
-- escalatedSolReasoning: medium|high; default high
-- solAdviceMaxTokens: 256..4096; default 2000
-- solTimeoutMs: 1000..120000; default 30000
-- initialConsultEnabled: boolean; default true
-- failOpen: boolean; default true
+LEGACY MODE:
+- requiredPresetId='' disables the old Luna route lock (default).
+- Set requiredPresetId=luna-sol-reasoning-router and copy/select the shipped preset to restore 0.1 behavior.
+- Legacy Sol is tool-less; Luna remains executor; blocker state is durable; default escalation is medium then high.
 
 CODE MAP:
-- src/advisor.ts: isolated Sol request; no tools/session; output protocol
-- src/router.ts: first-turn and blocker consultation state machine
-- src/tool.ts: fixed sol_consult schema
-- src/state.ts: issue fingerprints and durable restore
-- src/events.ts: session event registration
-- src/index.ts: plugin config and lifecycle wiring
-- cordis.patch.yml: host-plane Router mount and cold-history event compatibility
-- preset/luna-sol-reasoning-router/: complete opt-in preset identity and Standard tool surface
-- tests/router.spec.ts: invariant tests
+- src/team.ts: role route resolution, live catalog, advisory and subagent execution
+- src/team-tool.ts: agent_team_run and agent_team_catalog
+- src/index.ts: schema and per-agent/preset lifecycle
+- src/advisor.ts, router.ts, tool.ts, state.ts, events.ts: legacy Luna/Sol router
+- cordis.patch.yml: default universal Agent Team configuration
+- tests/team.spec.ts and tests/router.spec.ts: new and compatibility invariants
 
 VERIFY:
 - pnpm run typecheck
 - pnpm run test
 - pnpm run build
 - pnpm pack --dry-run
-
-READ NEXT ONLY IF NEEDED:
-- Human Chinese quickstart: README.zh-CN.md
-- Detailed English design/API notes: README.md

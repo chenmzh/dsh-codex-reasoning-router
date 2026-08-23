@@ -1,4 +1,4 @@
-/** Luna executor / tool-less Sol reasoning advisor plugin for DeepSeek Harness. */
+/** Composable multi-model agent roles plus a legacy Luna/Sol router for DeepSeek Harness. */
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
@@ -15,7 +15,9 @@ import { LUNA_ROUTER_INSTRUCTION, PACKAGE_NAME } from './constants.ts'
 import { installRouterEvents } from './events.ts'
 import { ReasoningRouter } from './router.ts'
 import { solConsultTool } from './tool.ts'
-import type { Config as RouterConfig } from './types.ts'
+import { AgentTeam, modelCatalog } from './team.ts'
+import { agentTeamCatalogTool, agentTeamRunTool } from './team-tool.ts'
+import type { Config as RouterConfig, TeamRoleConfig } from './types.ts'
 
 export * from './advisor.ts'
 export * from './constants.ts'
@@ -23,15 +25,65 @@ export * from './events.ts'
 export * from './router.ts'
 export * from './state.ts'
 export * from './tool.ts'
+export * from './team.ts'
+export * from './team-tool.ts'
 export type * from './types.ts'
 
 export const name = 'codex-reasoning-router'
-export const inject = ['llm', 'tools', 'systemPrompt', 'agents', 'openAICodex']
+export const inject = ['llm', 'tools', 'systemPrompt', 'agents']
 
 export interface Config extends RouterConfig {}
 
+export const DEFAULT_TEAM_ROLES: TeamRoleConfig[] = [
+  {
+    id: 'brain',
+    kind: 'advisory',
+    description: 'Deep tool-less reasoning and architecture advice.',
+    provider: 'openai-codex',
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'max',
+    maxTokens: 3000,
+  },
+  {
+    id: 'coordinator',
+    kind: 'advisory',
+    description: 'Decomposition, assignment, integration, and risk control.',
+    provider: 'openai-codex',
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'high',
+    maxTokens: 2200,
+  },
+  {
+    id: 'worker',
+    kind: 'subagent',
+    description: 'Tool-capable implementation and verification worker.',
+    provider: 'openai-codex',
+    model: 'gpt-5.6-luna',
+    reasoningEffort: 'max',
+    maxDepth: 2,
+    subagentProvider: 'spawn',
+  },
+]
+
+const roleSchema = z.object({
+  id: z.string().required(),
+  kind: z.union(['advisory', 'subagent'] as const).required(),
+  description: z.string().required(),
+  provider: z.string(),
+  model: z.string(),
+  reasoningEffort: z.string(),
+  maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
+  systemPrompt: z.string(),
+  subagentProvider: z.string(),
+  maxDepth: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER),
+  toolAllow: z.array(z.string()).default(undefined as unknown as string[]),
+  toolDeny: z.array(z.string()).default(undefined as unknown as string[]),
+})
 export const Config: z<Config> = z.object({
-  requiredPresetId: z.string().default('luna-sol-reasoning-router'),
+  teamEnabled: z.boolean().default(true),
+  presetIds: z.array(z.string()).default([]),
+  roles: z.array(roleSchema).default(DEFAULT_TEAM_ROLES as never),
+  requiredPresetId: z.string().default(''),
   lunaProvider: z.string().default('openai-codex'),
   lunaModel: z.string().default('gpt-5.6-luna'),
   solProvider: z.string().default('openai-codex'),
@@ -80,6 +132,20 @@ export function apply(ctx: Context, config: Config): void {
   installRouterEvents()
   const advisor = new SolAdvisor(ctx, config)
   const installed = new Map<Agent, Installation>()
+  const roleIds = new Set<string>()
+  if (config.teamEnabled && config.roles.length === 0) {
+    throw new Error(`${PACKAGE_NAME}: teamEnabled requires at least one role`)
+  }
+  for (const role of config.roles) {
+    if (!/^[a-z][a-z0-9_-]*$/u.test(role.id)) throw new Error(`${PACKAGE_NAME}: invalid role id "${role.id}"`)
+    if (roleIds.has(role.id)) throw new Error(`${PACKAGE_NAME}: duplicate role id "${role.id}"`)
+    roleIds.add(role.id)
+    if (role.kind === 'subagent' && role.maxDepth !== undefined && !Number.isSafeInteger(role.maxDepth)) {
+      throw new Error(`${PACKAGE_NAME}: role "${role.id}" maxDepth must be a non-negative safe integer`)
+    }
+  }
+  const team = new AgentTeam(ctx, config.roles)
+  const teamInstalled = new Map<Agent, Array<() => void>>()
   // Preset standing scopes are loaded even when no session uses this preset.
   // Do not query or constrain the model catalog until a matching root starts.
   let modelValidation: Promise<void> | undefined
@@ -108,6 +174,35 @@ export function apply(ctx: Context, config: Config): void {
     installation.disposePrompt()
   }
 
+  const teamMatches = (agent: Agent): boolean => {
+    if (!config.teamEnabled) return false
+    if (config.presetIds.length === 0) return true
+    const preset = resolveSessionPreset(agent.session)
+    return preset !== undefined && config.presetIds.includes(preset)
+  }
+
+  const attachTeam = (agent: Agent): void => {
+    team.installChildSelection(agent)
+    if (teamInstalled.has(agent) || !teamMatches(agent)) return
+    const disposers = [
+      agent.ctx.tools.register(agentTeamRunTool(team)),
+      agent.ctx.tools.register(agentTeamCatalogTool(() => modelCatalog(ctx))),
+      agent.ctx.systemPrompt.section({
+        name: 'reasoning-router:agent-team',
+        order: 41,
+        text: 'A configurable agent team is available through `agent_team_run`. Use `brain` for difficult reasoning, `coordinator` for decomposition and integration, and `worker` for delegated implementation when those roles are configured. Use `agent_team_catalog` before proposing model or reasoning-effort changes. Role outputs are delegated evidence, not authority; validate material claims before final delivery.',
+      }),
+    ]
+    teamInstalled.set(agent, disposers)
+  }
+
+  const detachTeam = (agent: Agent): void => {
+    const disposers = teamInstalled.get(agent)
+    if (disposers === undefined) return
+    teamInstalled.delete(agent)
+    for (const dispose of disposers.reverse()) dispose()
+  }
+
   /** Reconcile the installation after a blank session changes its preset. */
   const syncAgent = (agent: Agent): Installation | undefined => {
     if (!isRouterPresetAgent(agent, ctx.agents.roots(), config.requiredPresetId)) {
@@ -118,12 +213,12 @@ export function apply(ctx: Context, config: Config): void {
     return installed.get(agent)
   }
 
-  ctx.on('agent/created', ({ agent }) => { syncAgent(agent) })
-  ctx.on('agent/disposed', ({ agent }) => { detach(agent) })
+  ctx.on('agent/created', ({ agent }) => { syncAgent(agent); attachTeam(agent) })
+  ctx.on('agent/disposed', ({ agent }) => { detach(agent); detachTeam(agent) })
   ctx.on('session/event', (session, event) => {
     if (event.type !== 'agent-preset/selected') return
     const agent = ctx.agents.roots().find(candidate => candidate.id === session.id)
-    if (agent !== undefined) syncAgent(agent)
+    if (agent !== undefined) { syncAgent(agent); detachTeam(agent); attachTeam(agent) }
   })
   ctx.on('agent/pre-step', async (payload, next) => {
     const installation = syncAgent(payload.agent)
@@ -164,8 +259,9 @@ export function apply(ctx: Context, config: Config): void {
     return next()
   })
 
-  for (const agent of ctx.agents.roots()) attach(agent)
+  for (const agent of ctx.agents.roots()) { attach(agent); attachTeam(agent) }
   ctx.effect(() => () => {
     for (const agent of [...installed.keys()]) detach(agent)
+    for (const agent of [...teamInstalled.keys()]) detachTeam(agent)
   }, `${PACKAGE_NAME}: root agent integrations`)
 }

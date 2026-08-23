@@ -1,6 +1,7 @@
+import { ContentBlock } from "@deepseek-ai/dsh-llm";
 import z from "@deepseek-ai/schemastery";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { Session, UserMessage } from "@deepseek-ai/dsh-session";
+import { JsonValue, Session, UserMessage } from "@deepseek-ai/dsh-session";
 import { ToolDefinition } from "@deepseek-ai/dsh-tools";
 import { Agent } from "@deepseek-ai/dsh-agent";
 import { Context } from "@deepseek-ai/cordis";
@@ -13,7 +14,28 @@ declare const LUNA_ROUTER_INSTRUCTION = "You are the execution agent. You own al
 declare const INITIAL_ADVISORY_FORMAT = "<sol_advisory>\ngoal:\n...\n\nsuccess_criteria:\n- ...\n\ntask_shape:\n...\n\ncritical_constraints:\n- ...\n\nunknowns_to_resolve:\n- ...\n\nrecommended_investigation:\n1. ...\n\nexecution_strategy:\n1. ...\n\nrisk_points:\n- ...\n\nverification:\n- ...\n\nescalation_conditions:\n- ...\n</sol_advisory>";
 //#endregion
 //#region src/types.d.ts
+type TeamRoleKind = 'advisory' | 'subagent';
+interface TeamRoleConfig {
+  id: string;
+  kind: TeamRoleKind;
+  description: string;
+  /** Omit provider/model to inherit the calling agent's current route. */
+  provider?: string;
+  model?: string;
+  /** Omit to use the selected model's configured/provider default. */
+  reasoningEffort?: string;
+  maxTokens?: number;
+  systemPrompt?: string;
+  subagentProvider?: string;
+  maxDepth?: number;
+  toolAllow?: string[];
+  toolDeny?: string[];
+}
 interface Config$1 {
+  teamEnabled: boolean;
+  /** Empty means the team tools compose with every preset. */
+  presetIds: string[];
+  roles: TeamRoleConfig[];
   requiredPresetId: string;
   lunaProvider: string;
   lunaModel: string;
@@ -135,13 +157,61 @@ declare function hasExhaustedRecord(session: Session, fingerprint: string): bool
 //#region src/tool.d.ts
 declare function solConsultTool(router: ReasoningRouter): ToolDefinition;
 //#endregion
+//#region src/team.d.ts
+declare module '@deepseek-ai/dsh-agent' {
+  interface AgentOptions {
+    /** Private markers used to install a team's effort before a child runs. */
+    reasoningRouterRole?: string;
+    reasoningRouterEffort?: string;
+  }
+}
+interface ResolvedRoleRoute {
+  provider: string;
+  model: string;
+  reasoningEffort?: string;
+}
+interface TeamRunResult extends ResolvedRoleRoute {
+  role: string;
+  kind: 'advisory' | 'subagent';
+  output: ContentBlock[];
+  stopReason?: string;
+  diagnostic?: string;
+}
+declare function resolveRoleRoute(agent: Agent, role: TeamRoleConfig): ResolvedRoleRoute;
+declare function validateRoleRoute(ctx: Context, route: ResolvedRoleRoute): Promise<void>;
+declare function modelCatalog(ctx: Context): Promise<{
+  provider: string;
+  name: string;
+  models: {
+    defaultReasoningEffort?: string;
+    id: string;
+    name: string;
+    reasoningEfforts: string[];
+  }[];
+}[]>;
+declare class AgentTeam {
+  private readonly ctx;
+  readonly roles: readonly TeamRoleConfig[];
+  constructor(ctx: Context, roles: readonly TeamRoleConfig[]);
+  role(id: string): TeamRoleConfig;
+  installChildSelection(agent: Agent): void;
+  run(agent: Agent, roleId: string, task: string, signal: AbortSignal): Promise<TeamRunResult>;
+  private runAdvisory;
+  private runSubagent;
+}
+//#endregion
+//#region src/team-tool.d.ts
+declare function agentTeamRunTool(team: AgentTeam): ToolDefinition;
+declare function agentTeamCatalogTool(load: () => Promise<JsonValue[]>): ToolDefinition;
+//#endregion
 //#region src/index.d.ts
 declare const name = "codex-reasoning-router";
 declare const inject: string[];
 interface Config extends Config$1 {}
+declare const DEFAULT_TEAM_ROLES: TeamRoleConfig[];
 declare const Config: z<Config>;
 /** Defense in depth: accidental global installation must not affect other presets. */
 declare function isRouterPresetAgent(agent: Agent, roots: readonly Agent[], requiredPresetId: string): boolean;
 declare function apply(ctx: Context, config: Config): void;
 //#endregion
-export { AdvisorScope, type AdvisoryRequest, type AdvisoryResult, Config, type ConsultValue, INITIAL_ADVISORY_FORMAT, LUNA_ROUTER_INSTRUCTION, PACKAGE_NAME, ROUTER_EVENT_TYPES, ReasoningRouter, SOL_ADVISOR_SYSTEM_PROMPT, SOL_CONSULT_TOOL, SolAdvisor, type SolConsultInput, type SolIssueState, SolProtocolError, SolReasoningEffort, advisorScope, apply, blockerPrompt, hasExhaustedRecord, hasInitialConsultRecord, initialPrompt, inject, installRouterEvents, isRouterPresetAgent, issueFingerprint, name, restoreIssueStates, safeError, solConsultTool };
+export { AdvisorScope, type AdvisoryRequest, type AdvisoryResult, AgentTeam, Config, type ConsultValue, DEFAULT_TEAM_ROLES, INITIAL_ADVISORY_FORMAT, LUNA_ROUTER_INSTRUCTION, PACKAGE_NAME, ROUTER_EVENT_TYPES, ReasoningRouter, ResolvedRoleRoute, SOL_ADVISOR_SYSTEM_PROMPT, SOL_CONSULT_TOOL, SolAdvisor, type SolConsultInput, type SolIssueState, SolProtocolError, SolReasoningEffort, type TeamRoleConfig, type TeamRoleKind, TeamRunResult, advisorScope, agentTeamCatalogTool, agentTeamRunTool, apply, blockerPrompt, hasExhaustedRecord, hasInitialConsultRecord, initialPrompt, inject, installRouterEvents, isRouterPresetAgent, issueFingerprint, modelCatalog, name, resolveRoleRoute, restoreIssueStates, safeError, solConsultTool, validateRoleRoute };
