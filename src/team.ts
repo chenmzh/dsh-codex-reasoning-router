@@ -8,7 +8,6 @@ import {
   type ContentBlock,
   type GenerateOptions,
 } from '@deepseek-ai/dsh-llm'
-import type { UsageCorrelationHint } from 'dsh-codex'
 import { safeError } from './advisor.ts'
 import { PACKAGE_NAME } from './constants.ts'
 import type { TeamRoleConfig } from './types.ts'
@@ -19,6 +18,12 @@ declare module '@deepseek-ai/dsh-agent' {
     reasoningRouterRole?: string
     reasoningRouterEffort?: string
   }
+}
+
+/** Correlation fields consumed structurally by dsh-codex's usage middleware. */
+interface UsageCorrelationHint {
+  readonly usageSessionId?: string
+  readonly usagePurpose?: string
 }
 
 interface SubagentResultLike {
