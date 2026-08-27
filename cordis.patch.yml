@@ -31,6 +31,25 @@
             reasoningEffort: max
             subagentProvider: spawn
             maxDepth: 2
+        triggerRules:
+          mode: rules
+          depthRoleId: brain
+          coordinatorRoleId: coordinator
+          workerRoleId: worker
+          firstTurnRoleId: coordinator
+          coordinatorMinDeliverables: 3
+          coordinatorMinSubsystems: 2
+          repeatedFailureThreshold: 2
+          triggerOnHighRisk: true
+          triggerOnConflictingEvidence: true
+          triggerOnArchitectureDecision: true
+          maxDepthCallsPerTurn: 1
+          maxCoordinatorCallsPerTurn: 1
+          maxConcurrentWorkers: 3
+          requirePriorAdviceEvaluation: true
+          showTriggerReason: true
+          firstTurnFailOpen: true
+          customInstructions: ''
         requiredPresetId: ''
         lunaProvider: openai-codex
         lunaModel: gpt-5.6-luna

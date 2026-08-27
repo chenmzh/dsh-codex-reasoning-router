@@ -2,15 +2,15 @@
 
 [简体中文](./README.zh-CN.md) | English | [AI / LLM context](./llms.txt)
 
-A composable multi-model Agent Team plugin for DeepSeek Harness (DSH). Version 0.2 no longer requires a dedicated preset: it layers onto Standard, Code, or a user-defined preset.
+A composable multi-model Agent Roles plugin for DeepSeek Harness (DSH). Version 0.2 no longer requires a dedicated preset: it layers onto Standard, Code, or a user-defined preset.
 
 Default roles:
 
 - `brain`: tool-less deep reasoning, using `openai-codex/gpt-5.6-sol` at `max`.
 - `coordinator`: tool-less decomposition and integration advice, using Sol at `high`.
 - `worker`: a real tool-capable DSH subagent, using `gpt-5.6-luna` at `max`, with absolute `maxDepth: 2`.
-- `agent_team_catalog`: reads the current user's registered providers, models, and model-specific reasoning efforts.
-- `agent_team_run`: runs any configured advisory or subagent role.
+- `agent_role_catalog`: reads the current user's registered providers, models, and model-specific reasoning efforts.
+- `agent_role_run`: runs any configured advisory or subagent role.
 
 The legacy `luna-sol-reasoning-router` preset and durable `sol_consult` state machine remain available, but route locking is disabled by default.
 
@@ -77,16 +77,26 @@ Roles may be added, removed, or renamed. Role ids must begin with a lowercase le
 | `maxDepth` | Absolute delegation-tree cap, not a relative remaining-depth count |
 | `toolAllow` / `toolDeny` | Native DSH child tool visibility filters for subagent roles |
 
-The plugin does not guess model capabilities. It reads `ctx.llm.listProviders()`, `listModels()`, and `resolveModelInfo()` at runtime. Invalid model/effort combinations fail before provider dispatch. `agent_team_catalog` exposes the same live directory to the agent.
+The plugin does not guess model capabilities. It reads `ctx.llm.listProviders()`, `listModels()`, and `resolveModelInfo()` at runtime. Invalid model/effort combinations fail before provider dispatch. `agent_role_catalog` exposes the same live directory to the agent.
+
+## Trigger rules
+
+The WebUI “Agent Roles → Trigger rules” tab persists these policies:
+
+- rules (default): inject explicit MUST conditions into the root agent; high risk, conflicting evidence, architecture decisions, repeated failures, and breadth thresholds are configurable.
+- manual: role calls are permitted only when the user explicitly requests one.
+- first-turn: run the selected advisory role once before root execution on the first user turn, with configurable fail-open behavior.
+
+Per-turn deep-reasoning and coordination limits plus worker concurrency are enforced by the runtime. Every agent_role_run selects a trigger_reason; repeated deep consultation can require prior_advice_evaluation. Role mappings use strict choices from configured roles. Only customInstructions is free text.
 
 ## Preset composition
 
 With the default `presetIds: []`, select whichever preset you already want:
 
 ```text
-Standard preset + agent team
-Code preset     + agent team
-custom preset   + agent team
+Standard preset + agent roles
+Code preset     + agent roles
+custom preset   + agent roles
 ```
 
 In-process children inherit their parent's preset composition, workspace, delegated policy, and tools. The role then applies its own route, effort, persona, optional tool filter, and depth cap.
@@ -113,7 +123,7 @@ initialConsultEnabled: true
 failOpen: true
 ```
 
-Copy and select the shipped preset. The old mode still provides a tool-less Sol advisor, validates the Luna root route, limits one blocker to two successful consultations, and restores escalation from durable session events. The 0.2 default `requiredPresetId: ''` disables only the legacy guard, not Agent Team.
+Copy and select the shipped preset. The old mode still provides a tool-less Sol advisor, validates the Luna root route, limits one blocker to two successful consultations, and restores escalation from durable session events. The 0.2 default `requiredPresetId: ''` disables only the legacy guard, not Agent Roles.
 
 ## Safety and runtime boundaries
 

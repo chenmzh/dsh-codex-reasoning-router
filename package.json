@@ -1,6 +1,6 @@
 {
   "name": "dsh-codex-reasoning-router",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Composable multi-model agent roles and legacy Luna/Sol reasoning routing for DeepSeek Harness",
   "keywords": [
     "deepseek-harness",
@@ -10,7 +10,7 @@
     "sol",
     "reasoning-router",
     "multi-agent",
-    "agent-team",
+    "agent-roles",
     "ai-agent"
   ],
   "homepage": "https://github.com/chenmzh/dsh-codex-reasoning-router#readme",
@@ -22,6 +22,10 @@
     "url": "git+https://github.com/chenmzh/dsh-codex-reasoning-router.git"
   },
   "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -30,7 +34,8 @@
       "default": "./lib/index.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client": "./lib/client.js"
   },
   "files": [
     "cordis.patch.yml",
@@ -44,10 +49,20 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
     }
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.client.json",
     "test": "vitest run",
     "build": "pnpm run typecheck && tsdown",
     "check": "pnpm run typecheck && pnpm run test && pnpm run build"
@@ -62,7 +77,14 @@
     "@deepseek-ai/dsh-system-prompt": "*",
     "@deepseek-ai/dsh-tools": "*",
     "@deepseek-ai/schemastery": "^3.18.1",
-    "dsh-codex": ">=0.2.3"
+    "dsh-codex": ">=0.2.3",
+    "@deepseek-ai/dsh-settings": "*",
+    "@deepseek-ai/dsh-client-runtime": "*",
+    "@deepseek-ai/dsh-client-ui-settings": "*",
+    "@deepseek-ai/dsh-client-locale": "*",
+    "@deepseek-ai/dsh-client-connection": "*",
+    "@deepseek-ai/dsh-client-ui-slots": "*",
+    "@deepseek-ai/dsh-client-ui-conversation": "*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -75,12 +97,21 @@
     "@deepseek-ai/dsh-tools": "0.1.0-rc.7",
     "@deepseek-ai/schemastery": "3.18.1",
     "@rolldown/binding-linux-x64-gnu": "1.2.4",
-    "@types/node": "^22.20.0",
+    "@types/node": "22.20.0",
     "@yuku-codegen/binding-linux-x64-gnu": "0.8.7",
     "@yuku-parser/binding-linux-x64-gnu": "0.8.7",
-    "dsh-codex": "link:../dsh-codex",
+    "dsh-codex": "0.2.5",
     "tsdown": "0.22.14",
     "typescript": "^5.9.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.10",
+    "@deepseek-ai/dsh-settings": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-client-locale": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-client-connection": "0.1.0-rc.7",
+    "@types/react": "~18.3.1",
+    "react": "^18.2.0"
   }
 }

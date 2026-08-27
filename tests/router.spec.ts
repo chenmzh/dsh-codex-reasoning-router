@@ -12,6 +12,7 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import {
   advisorScope,
   apply,
+  DEFAULT_TRIGGER_RULES,
   isRouterPresetAgent,
   installRouterEvents,
   issueFingerprint,
@@ -30,6 +31,7 @@ const config: Config = {
   teamEnabled: false,
   presetIds: [],
   roles: [],
+  triggerRules: DEFAULT_TRIGGER_RULES,
   requiredPresetId: 'luna-sol-reasoning-router',
   lunaProvider: 'openai-codex',
   lunaModel: 'gpt-5.6-luna',

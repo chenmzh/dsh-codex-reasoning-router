@@ -2,15 +2,15 @@
 
 [English](./README.md) | 简体中文 | [AI / LLM 上下文](./llms.txt)
 
-DeepSeek Harness（DSH）的可组合多模型 Agent Team 插件。它不再要求切换到专用 preset，可以与 Standard、Code 或用户自定义 preset 一起使用。
+DeepSeek Harness（DSH）的可组合多模型 Agent 角色 插件。它不再要求切换到专用 preset，可以与 Standard、Code 或用户自定义 preset 一起使用。
 
 默认团队：
 
 - `brain`：无工具深度推理，默认 `openai-codex/gpt-5.6-sol` + `max`。
 - `coordinator`：无工具任务拆解、分派与集成建议，默认 Sol + `high`。
 - `worker`：拥有当前 preset 工具的真实 DSH 子代理，默认 `gpt-5.6-luna` + `max`，绝对深度上限为 2。
-- `agent_team_catalog`：从当前用户已注册的 DSH provider 读取可用模型，以及每个模型真实支持的 reasoning effort。
-- `agent_team_run`：按角色运行 advisory 或子代理。
+- `agent_role_catalog`：从当前用户已注册的 DSH provider 读取可用模型，以及每个模型真实支持的 reasoning effort。
+- `agent_role_run`：按角色运行 advisory 或子代理。
 
 旧版 `luna-sol-reasoning-router` preset 与 `sol_consult` 状态机仍然保留，但默认不启用路由锁定。
 
@@ -77,16 +77,26 @@ roles:
 | `maxDepth` | 子代理树的绝对深度上限，不是“还能递归几层” |
 | `toolAllow` / `toolDeny` | DSH 原生子代理工具可见性过滤，仅用于 `subagent` |
 
-模型名和 effort 不靠插件硬编码猜测。运行时先通过 `ctx.llm.listProviders()`、`listModels()` 与 `resolveModelInfo()`读取当前用户目录；无效组合在发起模型请求或创建子代理前报错。会话中的 Agent 也可以调用 `agent_team_catalog` 查看同一目录。
+模型名和 effort 不靠插件硬编码猜测。运行时先通过 `ctx.llm.listProviders()`、`listModels()` 与 `resolveModelInfo()`读取当前用户目录；无效组合在发起模型请求或创建子代理前报错。会话中的 Agent 也可以调用 `agent_role_catalog` 查看同一目录。
+
+## 触发规则
+
+WebUI 的“Agent 角色 → 触发规则”Tab 可以配置并持久化以下策略：
+
+- rules（默认）：向根 Agent 注入明确的 MUST 条件；高风险、证据矛盾、架构决策、重复失败及任务宽度阈值均可调整。
+- manual：只有用户明确要求时才允许调用角色。
+- first-turn：首个用户回合在根 Agent 执行前自动运行所选 advisory 角色一次；失败时可选择 fail-open。
+
+深度推理和协调角色的每轮调用上限、Worker 并发上限由运行时硬限制。每次 agent_role_run 必须选择 trigger_reason；重复深度咨询可要求提供 prior_advice_evaluation。角色映射使用已配置角色的下拉选择，只有 customInstructions 是自由文本。
 
 ## 与其他 preset 组合
 
 默认 `presetIds: []`，所以只需选择原本想用的 preset：
 
 ```text
-Standard preset + agent team
-Code preset     + agent team
-自定义 preset   + agent team
+Standard preset + agent 角色
+Code preset     + agent 角色
+自定义 preset   + agent 角色
 ```
 
 子代理由 DSH 的 in-process provider 创建，自动继承父 Agent 的 preset composition、工作区、策略与可见工具，再应用角色自己的模型、effort、persona、工具过滤和深度上限。
@@ -113,7 +123,7 @@ initialConsultEnabled: true
 failOpen: true
 ```
 
-然后复制并选择随包提供的 preset。旧模式继续保证：Sol 无工具、主 Luna 路由被校验、同一 blocker 最多两次咨询、状态写入 session event。`requiredPresetId: ''`（0.2 默认）表示完全关闭旧路由锁定，不影响 Agent Team。
+然后复制并选择随包提供的 preset。旧模式继续保证：Sol 无工具、主 Luna 路由被校验、同一 blocker 最多两次咨询、状态写入 session event。`requiredPresetId: ''`（0.2 默认）表示完全关闭旧路由锁定，不影响 Agent 角色。
 
 ## 安全与边界
 
