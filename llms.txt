@@ -1,7 +1,7 @@
 # dsh-codex-reasoning-router
 
 PURPOSE: Composable multi-model Agent Team plugin for DeepSeek Harness, with legacy Luna/Sol router compatibility.
-VERSION: 0.2.0
+VERSION: 0.3.0
 LICENSE: Apache-2.0
 
 DEFAULT TEAM:
@@ -10,8 +10,8 @@ DEFAULT TEAM:
 - worker: real spawn subagent, openai-codex/gpt-5.6-luna, max, absolute maxDepth 2
 
 TOOLS:
-- agent_team_catalog: reads live registered providers, models, supported efforts, and defaults
-- agent_team_run: selects a configured role and runs advisory or subagent execution
+- agent_role_catalog: reads live registered providers, models, supported efforts, and defaults
+- agent_role_run: selects a configured role and runs advisory or subagent execution
 - sol_consult: legacy preset-bound blocker advisor
 
 COMPOSITION:
@@ -36,7 +36,7 @@ LEGACY MODE:
 
 CODE MAP:
 - src/team.ts: role route resolution, live catalog, advisory and subagent execution
-- src/team-tool.ts: agent_team_run and agent_team_catalog
+- src/team-tool.ts: agent_role_run and agent_role_catalog
 - src/index.ts: schema and per-agent/preset lifecycle
 - src/advisor.ts, router.ts, tool.ts, state.ts, events.ts: legacy Luna/Sol router
 - cordis.patch.yml: default universal Agent Team configuration
