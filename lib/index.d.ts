@@ -15,6 +15,28 @@ declare const INITIAL_ADVISORY_FORMAT = "<sol_advisory>\ngoal:\n...\n\nsuccess_c
 //#endregion
 //#region src/types.d.ts
 type TeamRoleKind = 'advisory' | 'subagent';
+type RoleTriggerMode = 'manual' | 'rules' | 'first-turn';
+type RoleTriggerReason = 'explicit-user-request' | 'first-turn-policy' | 'task-breadth' | 'high-risk' | 'repeated-failure' | 'conflicting-evidence' | 'architecture-decision' | 'delegated-execution' | 'custom-rule';
+interface RoleTriggerRules {
+  mode: RoleTriggerMode;
+  depthRoleId: string;
+  coordinatorRoleId: string;
+  workerRoleId: string;
+  firstTurnRoleId: string;
+  coordinatorMinDeliverables: number;
+  coordinatorMinSubsystems: number;
+  repeatedFailureThreshold: number;
+  triggerOnHighRisk: boolean;
+  triggerOnConflictingEvidence: boolean;
+  triggerOnArchitectureDecision: boolean;
+  maxDepthCallsPerTurn: number;
+  maxCoordinatorCallsPerTurn: number;
+  maxConcurrentWorkers: number;
+  requirePriorAdviceEvaluation: boolean;
+  showTriggerReason: boolean;
+  firstTurnFailOpen: boolean;
+  customInstructions: string;
+}
 interface TeamRoleConfig {
   id: string;
   kind: TeamRoleKind;
@@ -33,9 +55,10 @@ interface TeamRoleConfig {
 }
 interface Config$1 {
   teamEnabled: boolean;
-  /** Empty means the team tools compose with every preset. */
+  /** Empty means the role tools compose with every preset. */
   presetIds: string[];
   roles: TeamRoleConfig[];
+  triggerRules: RoleTriggerRules;
   requiredPresetId: string;
   lunaProvider: string;
   lunaModel: string;
@@ -104,7 +127,37 @@ declare function initialPrompt(userRequest: string, cwd?: string): string;
 declare function blockerPrompt(input: SolConsultInput, priorMediumAdvice?: string): string;
 //#endregion
 //#region src/events.d.ts
-declare const ROUTER_EVENT_TYPES: readonly ["reasoning-router/initial-consult", "reasoning-router/consult-medium", "reasoning-router/consult-high", "reasoning-router/consult-failed", "reasoning-router/escalation-exhausted"];
+declare const ROUTER_EVENT_TYPES: readonly ["agent-role/initial-run", "agent-role/run-started", "agent-role/run-finished", "reasoning-router/initial-consult", "reasoning-router/consult-medium", "reasoning-router/consult-high", "reasoning-router/consult-failed", "reasoning-router/escalation-exhausted"];
+interface InitialRoleRunEvent {
+  status: 'succeeded' | 'failed';
+  role: string;
+  triggerReason: 'first-turn-policy';
+  error?: string;
+}
+interface AgentRoleRunStartedEvent {
+  version: 1;
+  runId: string;
+  role: string;
+  kind: 'advisory' | 'subagent';
+  provider: string;
+  model: string;
+  reasoningEffort?: string;
+  triggerReason: RoleTriggerReason;
+  parentRunId: string | null;
+  childSessionId: string | null;
+  references: string[];
+  task: string;
+}
+interface AgentRoleRunFinishedEvent {
+  version: 1;
+  runId: string;
+  status: 'succeeded' | 'failed';
+  durationMs: number;
+  childSessionId?: string | null;
+  output?: string;
+  stopReason?: string;
+  error?: string;
+}
 interface InitialConsultEvent {
   status: 'succeeded' | 'failed' | 'disabled';
   advisory?: string;
@@ -127,6 +180,9 @@ interface EscalationExhaustedEvent {
 }
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
+    'agent-role/initial-run': InitialRoleRunEvent;
+    'agent-role/run-started': AgentRoleRunStartedEvent;
+    'agent-role/run-finished': AgentRoleRunFinishedEvent;
     'reasoning-router/initial-consult': InitialConsultEvent;
     'reasoning-router/consult-medium': ConsultEvent;
     'reasoning-router/consult-high': ConsultEvent;
@@ -146,23 +202,14 @@ declare class ReasoningRouter {
   consult(agent: Agent, input: SolConsultInput, signal: AbortSignal): Promise<ConsultValue>;
 }
 //#endregion
-//#region src/state.d.ts
-/** Stable, deterministic blocker identity; attempts and wording of the question are intentionally excluded. */
-declare function issueFingerprint(input: SolConsultInput): string;
-/** Fold plugin-owned durable events. Process-local maps are never authoritative. */
-declare function restoreIssueStates(session: Session): Map<string, SolIssueState>;
-declare function hasInitialConsultRecord(session: Session): boolean;
-declare function hasExhaustedRecord(session: Session, fingerprint: string): boolean;
-//#endregion
-//#region src/tool.d.ts
-declare function solConsultTool(router: ReasoningRouter): ToolDefinition;
-//#endregion
 //#region src/team.d.ts
 declare module '@deepseek-ai/dsh-agent' {
   interface AgentOptions {
     /** Private markers used to install a team's effort before a child runs. */
     reasoningRouterRole?: string;
     reasoningRouterEffort?: string;
+    /** Parent role-run id used to render nested activation edges. */
+    reasoningRouterParentRunId?: string;
   }
 }
 interface ResolvedRoleRoute {
@@ -171,11 +218,14 @@ interface ResolvedRoleRoute {
   reasoningEffort?: string;
 }
 interface TeamRunResult extends ResolvedRoleRoute {
+  runId: string;
   role: string;
   kind: 'advisory' | 'subagent';
   output: ContentBlock[];
   stopReason?: string;
   diagnostic?: string;
+  childSessionId?: string;
+  triggerReason?: RoleTriggerReason;
 }
 declare function resolveRoleRoute(agent: Agent, role: TeamRoleConfig): ResolvedRoleRoute;
 declare function validateRoleRoute(ctx: Context, route: ResolvedRoleRoute): Promise<void>;
@@ -189,16 +239,49 @@ declare function modelCatalog(ctx: Context): Promise<{
     reasoningEfforts: string[];
   }[];
 }[]>;
+interface RoleRunMeta {
+  triggerReason?: RoleTriggerReason;
+  priorAdviceEvaluation?: string;
+  references?: readonly string[];
+  maxTokensCap?: number;
+}
 declare class AgentTeam {
   private readonly ctx;
   readonly roles: readonly TeamRoleConfig[];
-  constructor(ctx: Context, roles: readonly TeamRoleConfig[]);
+  readonly triggerRules?: RoleTriggerRules | undefined;
+  private readonly turnStates;
+  constructor(ctx: Context, roles: readonly TeamRoleConfig[], triggerRules?: RoleTriggerRules | undefined);
+  beginTurn(agent: Agent): void;
+  private state;
+  private reserve;
   role(id: string): TeamRoleConfig;
   installChildSelection(agent: Agent): void;
-  run(agent: Agent, roleId: string, task: string, signal: AbortSignal): Promise<TeamRunResult>;
+  run(agent: Agent, roleId: string, task: string, signal: AbortSignal, meta?: RoleRunMeta): Promise<TeamRunResult>;
   private runAdvisory;
   private runSubagent;
 }
+//#endregion
+//#region src/role-policy.d.ts
+declare const DEFAULT_TRIGGER_RULES: RoleTriggerRules;
+/** Migrate only the legacy all-default mapping when custom role ids replaced the shipped roster. */
+declare function migrateLegacyTriggerRules(rules: RoleTriggerRules, roles: readonly TeamRoleConfig[]): RoleTriggerRules;
+declare function roleTriggerPrompt(rules: RoleTriggerRules): string;
+declare function validateTriggerRules(rules: RoleTriggerRules, roles: readonly TeamRoleConfig[]): void;
+declare function beforeInitialRoleRun(agent: Agent, messages: UserMessage[], team: AgentTeam, rules: RoleTriggerRules, signal: AbortSignal): Promise<UserMessage[]>;
+//#endregion
+//#region src/model-limits.d.ts
+declare function builtinMaxOutputTokens(provider: string | undefined, model: string | undefined): number | undefined;
+//#endregion
+//#region src/state.d.ts
+/** Stable, deterministic blocker identity; attempts and wording of the question are intentionally excluded. */
+declare function issueFingerprint(input: SolConsultInput): string;
+/** Fold plugin-owned durable events. Process-local maps are never authoritative. */
+declare function restoreIssueStates(session: Session): Map<string, SolIssueState>;
+declare function hasInitialConsultRecord(session: Session): boolean;
+declare function hasExhaustedRecord(session: Session, fingerprint: string): boolean;
+//#endregion
+//#region src/tool.d.ts
+declare function solConsultTool(router: ReasoningRouter): ToolDefinition;
 //#endregion
 //#region src/team-tool.d.ts
 declare function agentTeamRunTool(team: AgentTeam): ToolDefinition;
@@ -208,10 +291,19 @@ declare function agentTeamCatalogTool(load: () => Promise<JsonValue[]>): ToolDef
 declare const name = "codex-reasoning-router";
 declare const inject: string[];
 interface Config extends Config$1 {}
+interface TeamSettings {
+  teamEnabled: boolean;
+  presetIds: string[];
+  roles: TeamRoleConfig[];
+  triggerRules: RoleTriggerRules;
+}
+declare const TEAM_SETTINGS_NAMESPACE: import("@deepseek-ai/dsh-settings").SettingsNamespace;
 declare const DEFAULT_TEAM_ROLES: TeamRoleConfig[];
+declare const TeamSettings: z<TeamSettings>;
 declare const Config: z<Config>;
+declare function validateTeamSettings(config: TeamSettings): void;
 /** Defense in depth: accidental global installation must not affect other presets. */
 declare function isRouterPresetAgent(agent: Agent, roots: readonly Agent[], requiredPresetId: string): boolean;
 declare function apply(ctx: Context, config: Config): void;
 //#endregion
-export { AdvisorScope, type AdvisoryRequest, type AdvisoryResult, AgentTeam, Config, type ConsultValue, DEFAULT_TEAM_ROLES, INITIAL_ADVISORY_FORMAT, LUNA_ROUTER_INSTRUCTION, PACKAGE_NAME, ROUTER_EVENT_TYPES, ReasoningRouter, ResolvedRoleRoute, SOL_ADVISOR_SYSTEM_PROMPT, SOL_CONSULT_TOOL, SolAdvisor, type SolConsultInput, type SolIssueState, SolProtocolError, SolReasoningEffort, type TeamRoleConfig, type TeamRoleKind, TeamRunResult, advisorScope, agentTeamCatalogTool, agentTeamRunTool, apply, blockerPrompt, hasExhaustedRecord, hasInitialConsultRecord, initialPrompt, inject, installRouterEvents, isRouterPresetAgent, issueFingerprint, modelCatalog, name, resolveRoleRoute, restoreIssueStates, safeError, solConsultTool, validateRoleRoute };
+export { AdvisorScope, type AdvisoryRequest, type AdvisoryResult, AgentRoleRunFinishedEvent, AgentRoleRunStartedEvent, AgentTeam, Config, type ConsultValue, DEFAULT_TEAM_ROLES, DEFAULT_TRIGGER_RULES, INITIAL_ADVISORY_FORMAT, LUNA_ROUTER_INSTRUCTION, PACKAGE_NAME, ROUTER_EVENT_TYPES, ReasoningRouter, ResolvedRoleRoute, type RoleTriggerMode, type RoleTriggerReason, type RoleTriggerRules, SOL_ADVISOR_SYSTEM_PROMPT, SOL_CONSULT_TOOL, SolAdvisor, type SolConsultInput, type SolIssueState, SolProtocolError, SolReasoningEffort, TEAM_SETTINGS_NAMESPACE, type TeamRoleConfig, type TeamRoleKind, TeamRunResult, TeamSettings, advisorScope, agentTeamCatalogTool, agentTeamRunTool, apply, beforeInitialRoleRun, blockerPrompt, builtinMaxOutputTokens, hasExhaustedRecord, hasInitialConsultRecord, initialPrompt, inject, installRouterEvents, isRouterPresetAgent, issueFingerprint, migrateLegacyTriggerRules, modelCatalog, name, resolveRoleRoute, restoreIssueStates, roleTriggerPrompt, safeError, solConsultTool, validateRoleRoute, validateTeamSettings, validateTriggerRules };
