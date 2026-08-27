@@ -2,6 +2,40 @@ import type { SolReasoningEffort } from './constants.ts'
 
 export type TeamRoleKind = 'advisory' | 'subagent'
 
+
+export type RoleTriggerMode = 'manual' | 'rules' | 'first-turn'
+
+export type RoleTriggerReason =
+  | 'explicit-user-request'
+  | 'first-turn-policy'
+  | 'task-breadth'
+  | 'high-risk'
+  | 'repeated-failure'
+  | 'conflicting-evidence'
+  | 'architecture-decision'
+  | 'delegated-execution'
+  | 'custom-rule'
+
+export interface RoleTriggerRules {
+  mode: RoleTriggerMode
+  depthRoleId: string
+  coordinatorRoleId: string
+  workerRoleId: string
+  firstTurnRoleId: string
+  coordinatorMinDeliverables: number
+  coordinatorMinSubsystems: number
+  repeatedFailureThreshold: number
+  triggerOnHighRisk: boolean
+  triggerOnConflictingEvidence: boolean
+  triggerOnArchitectureDecision: boolean
+  maxDepthCallsPerTurn: number
+  maxCoordinatorCallsPerTurn: number
+  maxConcurrentWorkers: number
+  requirePriorAdviceEvaluation: boolean
+  showTriggerReason: boolean
+  firstTurnFailOpen: boolean
+  customInstructions: string
+}
 export interface TeamRoleConfig {
   id: string
   kind: TeamRoleKind
@@ -21,9 +55,10 @@ export interface TeamRoleConfig {
 
 export interface Config {
   teamEnabled: boolean
-  /** Empty means the team tools compose with every preset. */
+  /** Empty means the role tools compose with every preset. */
   presetIds: string[]
   roles: TeamRoleConfig[]
+  triggerRules: RoleTriggerRules
   requiredPresetId: string
   lunaProvider: string
   lunaModel: string

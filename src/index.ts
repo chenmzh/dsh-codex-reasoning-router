@@ -4,6 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
 import type { Context } from '@deepseek-ai/cordis'
 import { isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
+import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session'
@@ -13,15 +14,19 @@ import { advisorScope, SolAdvisor } from './advisor.ts'
 import { LUNA_ROUTER_INSTRUCTION, PACKAGE_NAME } from './constants.ts'
 import { installRouterEvents } from './events.ts'
 import { ReasoningRouter } from './router.ts'
+import { beforeInitialRoleRun, DEFAULT_TRIGGER_RULES, migrateLegacyTriggerRules, roleTriggerPrompt, validateTriggerRules } from './role-policy.ts'
+import { builtinMaxOutputTokens } from './model-limits.ts'
 import { solConsultTool } from './tool.ts'
 import { AgentTeam, modelCatalog } from './team.ts'
 import { agentTeamCatalogTool, agentTeamRunTool } from './team-tool.ts'
-import type { Config as RouterConfig, TeamRoleConfig } from './types.ts'
+import type { Config as RouterConfig, RoleTriggerRules, TeamRoleConfig } from './types.ts'
 
 export * from './advisor.ts'
 export * from './constants.ts'
 export * from './events.ts'
 export * from './router.ts'
+export * from './role-policy.ts'
+export * from './model-limits.ts'
 export * from './state.ts'
 export * from './tool.ts'
 export * from './team.ts'
@@ -29,9 +34,18 @@ export * from './team-tool.ts'
 export type * from './types.ts'
 
 export const name = 'codex-reasoning-router'
-export const inject = ['llm', 'tools', 'systemPrompt', 'agents']
+export const inject = ['llm', 'tools', 'systemPrompt', 'agents', 'subagents']
 
 export interface Config extends RouterConfig {}
+
+export interface TeamSettings {
+  teamEnabled: boolean
+  presetIds: string[]
+  roles: TeamRoleConfig[]
+  triggerRules: RoleTriggerRules
+}
+
+export const TEAM_SETTINGS_NAMESPACE = settingsNamespace('codex-reasoning-router')
 
 export const DEFAULT_TEAM_ROLES: TeamRoleConfig[] = [
   {
@@ -78,11 +92,38 @@ const roleSchema = z.object({
   toolAllow: z.array(z.string()).default(undefined as unknown as string[]),
   toolDeny: z.array(z.string()).default(undefined as unknown as string[]),
 })
+const triggerRulesSchema = z.object({
+  mode: z.union(['manual', 'rules', 'first-turn'] as const).default('rules'),
+  depthRoleId: z.string().default('brain'),
+  coordinatorRoleId: z.string().default('coordinator'),
+  workerRoleId: z.string().default('worker'),
+  firstTurnRoleId: z.string().default('coordinator'),
+  coordinatorMinDeliverables: z.number().step(1).min(1).max(20).default(3),
+  coordinatorMinSubsystems: z.number().step(1).min(1).max(20).default(2),
+  repeatedFailureThreshold: z.number().step(1).min(1).max(10).default(2),
+  triggerOnHighRisk: z.boolean().default(true),
+  triggerOnConflictingEvidence: z.boolean().default(true),
+  triggerOnArchitectureDecision: z.boolean().default(true),
+  maxDepthCallsPerTurn: z.number().step(1).min(1).max(10).default(1),
+  maxCoordinatorCallsPerTurn: z.number().step(1).min(1).max(10).default(1),
+  maxConcurrentWorkers: z.number().step(1).min(1).max(10).default(3),
+  requirePriorAdviceEvaluation: z.boolean().default(true),
+  showTriggerReason: z.boolean().default(true),
+  firstTurnFailOpen: z.boolean().default(true),
+  customInstructions: z.string().default(''),
+}).default(DEFAULT_TRIGGER_RULES as never)
+export const TeamSettings: z<TeamSettings> = z.object({
+  teamEnabled: z.boolean().default(true),
+  presetIds: z.array(z.string()).default([]),
+  roles: z.array(roleSchema).default(DEFAULT_TEAM_ROLES as never),
+  triggerRules: triggerRulesSchema,
+})
 export const Config: z<Config> = z.object({
   teamEnabled: z.boolean().default(true),
   presetIds: z.array(z.string()).default([]),
   roles: z.array(roleSchema).default(DEFAULT_TEAM_ROLES as never),
   requiredPresetId: z.string().default(''),
+  triggerRules: triggerRulesSchema,
   lunaProvider: z.string().default('openai-codex'),
   lunaModel: z.string().default('gpt-5.6-luna'),
   solProvider: z.string().default('openai-codex'),
@@ -94,6 +135,23 @@ export const Config: z<Config> = z.object({
   initialConsultEnabled: z.boolean().default(true),
   failOpen: z.boolean().default(true),
 })
+
+export function validateTeamSettings(config: TeamSettings): void {
+  config.triggerRules = migrateLegacyTriggerRules(config.triggerRules, config.roles)
+  const roleIds = new Set<string>()
+  if (config.teamEnabled && config.roles.length === 0) throw new Error(PACKAGE_NAME + ': teamEnabled requires at least one role')
+  for (const role of config.roles) {
+    if (!/^[a-z][a-z0-9_-]*$/u.test(role.id)) throw new Error(PACKAGE_NAME + ': invalid role id ' + role.id)
+    if (roleIds.has(role.id)) throw new Error(PACKAGE_NAME + ': duplicate role id ' + role.id)
+    roleIds.add(role.id)
+    if (role.kind === 'subagent' && role.maxDepth !== undefined && !Number.isSafeInteger(role.maxDepth)) throw new Error(PACKAGE_NAME + ': role ' + role.id + ' maxDepth must be a non-negative safe integer')
+    const builtinMax = builtinMaxOutputTokens(role.provider, role.model)
+    if (role.maxTokens !== undefined && builtinMax !== undefined && role.maxTokens > builtinMax) {
+      throw new Error(PACKAGE_NAME + ': role ' + role.id + ' maxTokens ' + role.maxTokens + ' exceeds the built-in maximum output ' + builtinMax + ' for ' + role.provider + '/' + role.model)
+    }
+  }
+  if (config.teamEnabled) validateTriggerRules(config.triggerRules, config.roles)
+}
 
 async function validateModels(ctx: Context, config: Config): Promise<void> {
   const routes = new Map<string, string[]>([
@@ -131,19 +189,15 @@ export function apply(ctx: Context, config: Config): void {
   installRouterEvents()
   const advisor = new SolAdvisor(ctx, config)
   const installed = new Map<Agent, Installation>()
-  const roleIds = new Set<string>()
-  if (config.teamEnabled && config.roles.length === 0) {
-    throw new Error(`${PACKAGE_NAME}: teamEnabled requires at least one role`)
+  const baseTeam: TeamSettings = {
+    teamEnabled: config.teamEnabled,
+    presetIds: config.presetIds,
+    roles: config.roles,
+    triggerRules: config.triggerRules,
   }
-  for (const role of config.roles) {
-    if (!/^[a-z][a-z0-9_-]*$/u.test(role.id)) throw new Error(`${PACKAGE_NAME}: invalid role id "${role.id}"`)
-    if (roleIds.has(role.id)) throw new Error(`${PACKAGE_NAME}: duplicate role id "${role.id}"`)
-    roleIds.add(role.id)
-    if (role.kind === 'subagent' && role.maxDepth !== undefined && !Number.isSafeInteger(role.maxDepth)) {
-      throw new Error(`${PACKAGE_NAME}: role "${role.id}" maxDepth must be a non-negative safe integer`)
-    }
-  }
-  const team = new AgentTeam(ctx, config.roles)
+  validateTeamSettings(baseTeam)
+  let teamSource = (): TeamSettings => baseTeam
+  let team = new AgentTeam(ctx, baseTeam.roles, baseTeam.triggerRules)
   const teamInstalled = new Map<Agent, Array<() => void>>()
   // Preset standing scopes are loaded even when no session uses this preset.
   // Do not query or constrain the model catalog until a matching root starts.
@@ -174,10 +228,11 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   const teamMatches = (agent: Agent): boolean => {
-    if (!config.teamEnabled) return false
-    if (config.presetIds.length === 0) return true
+    const active = teamSource()
+    if (!active.teamEnabled) return false
+    if (active.presetIds.length === 0) return true
     const preset = resolveSessionPreset(agent.session)
-    return preset !== undefined && config.presetIds.includes(preset)
+    return preset !== undefined && active.presetIds.includes(preset)
   }
 
   const attachTeam = (agent: Agent): void => {
@@ -189,7 +244,7 @@ export function apply(ctx: Context, config: Config): void {
       agent.ctx.systemPrompt.section({
         name: 'reasoning-router:agent-team',
         order: 41,
-        text: 'A configurable agent team is available through `agent_team_run`. Use `brain` for difficult reasoning, `coordinator` for decomposition and integration, and `worker` for delegated implementation when those roles are configured. Use `agent_team_catalog` before proposing model or reasoning-effort changes. Role outputs are delegated evidence, not authority; validate material claims before final delivery.',
+        text: roleTriggerPrompt(teamSource().triggerRules) + '\nUse agent_role_catalog before proposing model or reasoning-effort changes. Role outputs are delegated evidence, not authority; validate material claims before final delivery.',
       }),
     ]
     teamInstalled.set(agent, disposers)
@@ -200,6 +255,25 @@ export function apply(ctx: Context, config: Config): void {
     if (disposers === undefined) return
     teamInstalled.delete(agent)
     for (const dispose of disposers.reverse()) dispose()
+  }
+
+  const reconfigureTeam = (): void => {
+    const active = teamSource()
+    validateTeamSettings(active)
+    const candidates = new Set([...teamInstalled.keys(), ...ctx.agents.roots()])
+    for (const agent of candidates) detachTeam(agent)
+    team = new AgentTeam(ctx, active.roles, active.triggerRules)
+    for (const agent of candidates) attachTeam(agent)
+  }
+
+  // Lightweight integration harnesses may provide only the services used by this plugin.
+  // A real Cordis Context always exposes inject; settings itself remains optional.
+  if (typeof ctx.inject === 'function') {
+    installSettingsSection(ctx, TEAM_SETTINGS_NAMESPACE, TeamSettings, baseTeam, {
+      validate: validateTeamSettings,
+      setSource: source => { teamSource = source },
+      onChange: reconfigureTeam,
+    })
   }
 
   /** Reconcile the installation after a blank session changes its preset. */
@@ -215,17 +289,23 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('agent/created', ({ agent }) => { syncAgent(agent); attachTeam(agent) })
   ctx.on('agent/disposed', ({ agent }) => { detach(agent); detachTeam(agent) })
   ctx.on('session/event', (session, event) => {
-    if (event.type !== 'agent-preset/selected') return
     const agent = ctx.agents.roots().find(candidate => candidate.id === session.id)
-    if (agent !== undefined) { syncAgent(agent); detachTeam(agent); attachTeam(agent) }
+    if (agent === undefined) return
+    if (event.type === 'turn/start') team.beginTurn(agent)
+    if (event.type === 'agent-preset/selected') { syncAgent(agent); detachTeam(agent); attachTeam(agent) }
   })
   ctx.on('agent/pre-step', async (payload, next) => {
     const installation = syncAgent(payload.agent)
-    if (installation === undefined) return next()
     const decision = await next()
     if (decision.kind === 'reject') return decision
-    await validateRouterModels()
-    const messages = await installation.router.beforeFirstStep(payload.agent, decision.messages, payload.signal)
+    let messages = decision.messages
+    if (teamMatches(payload.agent)) {
+      messages = await beforeInitialRoleRun(payload.agent, messages, team, teamSource().triggerRules, payload.signal)
+    }
+    if (installation !== undefined) {
+      await validateRouterModels()
+      messages = await installation.router.beforeFirstStep(payload.agent, messages, payload.signal)
+    }
     return { kind: 'enter', messages }
   })
   ctx.on('agent/request', async (payload, next) => {
