@@ -126,7 +126,11 @@ function lightweightFirstTurn(request: string): boolean {
 }
 
 function hasInitialRoleRun(agent: Agent): boolean {
-  return agent.session.events.some(event => event.type === 'agent-role/initial-run')
+  const session = agent.session as any
+  const events: readonly any[] = typeof session?.snapshotEvents === 'function'
+    ? session.snapshotEvents()
+    : (session?.events ?? [])
+  return events.some((event: any) => event?.type === 'agent-role/initial-run')
 }
 
 export async function beforeInitialRoleRun(

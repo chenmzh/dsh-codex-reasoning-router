@@ -137,7 +137,7 @@ export const Config: z<Config> = z.object({
 })
 
 export function validateTeamSettings(config: TeamSettings): void {
-  config.triggerRules = migrateLegacyTriggerRules(config.triggerRules, config.roles)
+  const triggerRules = migrateLegacyTriggerRules(config.triggerRules, config.roles)
   const roleIds = new Set<string>()
   if (config.teamEnabled && config.roles.length === 0) throw new Error(PACKAGE_NAME + ': teamEnabled requires at least one role')
   for (const role of config.roles) {
@@ -150,7 +150,7 @@ export function validateTeamSettings(config: TeamSettings): void {
       throw new Error(PACKAGE_NAME + ': role ' + role.id + ' maxTokens ' + role.maxTokens + ' exceeds the built-in maximum output ' + builtinMax + ' for ' + role.provider + '/' + role.model)
     }
   }
-  if (config.teamEnabled) validateTriggerRules(config.triggerRules, config.roles)
+  if (config.teamEnabled) validateTriggerRules(triggerRules, config.roles)
 }
 
 async function validateModels(ctx: Context, config: Config): Promise<void> {
@@ -182,6 +182,7 @@ interface Installation {
 
 /** Defense in depth: accidental global installation must not affect other presets. */
 export function isRouterPresetAgent(agent: Agent, roots: readonly Agent[], requiredPresetId: string): boolean {
+  if (requiredPresetId === '') return false
   return roots.includes(agent) && resolveSessionPreset(agent.session) === requiredPresetId
 }
 
@@ -197,7 +198,8 @@ export function apply(ctx: Context, config: Config): void {
   }
   validateTeamSettings(baseTeam)
   let teamSource = (): TeamSettings => baseTeam
-  let team = new AgentTeam(ctx, baseTeam.roles, baseTeam.triggerRules)
+  const initialRules = migrateLegacyTriggerRules(baseTeam.triggerRules, baseTeam.roles)
+  let team = new AgentTeam(ctx, baseTeam.roles, initialRules)
   const teamInstalled = new Map<Agent, Array<() => void>>()
   // Preset standing scopes are loaded even when no session uses this preset.
   // Do not query or constrain the model catalog until a matching root starts.
@@ -238,13 +240,15 @@ export function apply(ctx: Context, config: Config): void {
   const attachTeam = (agent: Agent): void => {
     team.installChildSelection(agent)
     if (teamInstalled.has(agent) || !teamMatches(agent)) return
+    const active = teamSource()
+    const effectiveRules = migrateLegacyTriggerRules(active.triggerRules, active.roles)
     const disposers = [
       agent.ctx.tools.register(agentTeamRunTool(team)),
       agent.ctx.tools.register(agentTeamCatalogTool(() => modelCatalog(ctx))),
       agent.ctx.systemPrompt.section({
         name: 'reasoning-router:agent-team',
         order: 41,
-        text: roleTriggerPrompt(teamSource().triggerRules) + '\nUse agent_role_catalog before proposing model or reasoning-effort changes. Role outputs are delegated evidence, not authority; validate material claims before final delivery.',
+        text: roleTriggerPrompt(effectiveRules) + '\nUse agent_role_catalog before proposing model or reasoning-effort changes. Role outputs are delegated evidence, not authority; validate material claims before final delivery.',
       }),
     ]
     teamInstalled.set(agent, disposers)
@@ -260,14 +264,13 @@ export function apply(ctx: Context, config: Config): void {
   const reconfigureTeam = (): void => {
     const active = teamSource()
     validateTeamSettings(active)
+    const effectiveRules = migrateLegacyTriggerRules(active.triggerRules, active.roles)
     const candidates = new Set([...teamInstalled.keys(), ...ctx.agents.roots()])
     for (const agent of candidates) detachTeam(agent)
-    team = new AgentTeam(ctx, active.roles, active.triggerRules)
+    team = new AgentTeam(ctx, active.roles, effectiveRules)
     for (const agent of candidates) attachTeam(agent)
   }
 
-  // Lightweight integration harnesses may provide only the services used by this plugin.
-  // A real Cordis Context always exposes inject; settings itself remains optional.
   if (typeof ctx.inject === 'function') {
     installSettingsSection(ctx, TEAM_SETTINGS_NAMESPACE, TeamSettings, baseTeam, {
       validate: validateTeamSettings,
@@ -300,7 +303,9 @@ export function apply(ctx: Context, config: Config): void {
     if (decision.kind === 'reject') return decision
     let messages = decision.messages
     if (teamMatches(payload.agent)) {
-      messages = await beforeInitialRoleRun(payload.agent, messages, team, teamSource().triggerRules, payload.signal)
+      const active = teamSource()
+      const effectiveRules = migrateLegacyTriggerRules(active.triggerRules, active.roles)
+      messages = await beforeInitialRoleRun(payload.agent, messages, team, effectiveRules, payload.signal)
     }
     if (installation !== undefined) {
       await validateRouterModels()

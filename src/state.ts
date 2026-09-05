@@ -37,11 +37,15 @@ function localStart(session: Session): number {
   return session.header.seedLength ?? 0
 }
 
+function sessionEvents(session: Session): readonly any[] {
+  return typeof (session as any).snapshotEvents === 'function' ? (session as any).snapshotEvents() : (session.events ?? [])
+}
+
 /** Fold plugin-owned durable events. Process-local maps are never authoritative. */
 export function restoreIssueStates(session: Session): Map<string, SolIssueState> {
   const states = new Map<string, SolIssueState>()
   const start = localStart(session)
-  for (const event of session.events) {
+  for (const event of sessionEvents(session)) {
     if (event.seq < start) continue
     if (event.type !== 'reasoning-router/consult-medium' && event.type !== 'reasoning-router/consult-high') continue
     states.set(event.data.fingerprint, { ...event.data.state })
@@ -51,12 +55,12 @@ export function restoreIssueStates(session: Session): Map<string, SolIssueState>
 
 export function hasInitialConsultRecord(session: Session): boolean {
   const start = localStart(session)
-  return session.events.some(event => event.seq >= start && event.type === 'reasoning-router/initial-consult')
+  return sessionEvents(session).some(event => event.seq >= start && event.type === 'reasoning-router/initial-consult')
 }
 
 export function hasExhaustedRecord(session: Session, fingerprint: string): boolean {
   const start = localStart(session)
-  return session.events.some(event => event.seq >= start
+  return sessionEvents(session).some(event => event.seq >= start
     && event.type === 'reasoning-router/escalation-exhausted'
     && event.data.fingerprint === fingerprint)
 }
