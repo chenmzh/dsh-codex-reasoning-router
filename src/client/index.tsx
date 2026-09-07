@@ -1,5 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import type { ClientContext, SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
@@ -471,7 +474,7 @@ function RoleSettingsSection({ t, useRoleSettings, save, loadOptions }: Injected
 }
 
 export const name = 'dsh-codex-reasoning-router-client'
-export const inject = ['slots', 'locale', 'settingsScope', 'connection', 'conversationEvents', 'conversationViews']
+export const inject = ['slots', 'locale', 'settingsScope', 'remote', 'remote.session', 'remote.agentPresets', 'uiConversation']
 
 export function apply(ctx: ClientContext): void {
   registerAgentFlow(ctx)
@@ -479,39 +482,22 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(namespace, { zh, en }), 'reasoning-router: settings copy')
   const t = ctx.locale.bind(namespace) as Injected['t']
   const scope = ctx.settingsScope.bind<TeamSettings>({ namespace: 'codex-reasoning-router' })
-  const connection = ctx.get('connection') as {
-    api: {
-      llm: { models: (request: {}) => Promise<RpcResult<{ groups: CatalogGroup[] }>> }
-      agentPresets: { list: (request: {}) => Promise<RpcResult<{ presets: CatalogPreset[] }>> }
-      settings: { mutate: (request: {
-        ns: string
-        ops: Array<{ op: 'set'; path: string[]; value: unknown }>
-        expectedRevision?: number
-      }) => Promise<RpcResult<unknown>> }
-    }
-  }
   const loadOptions = async (): Promise<CatalogOptions> => {
     const [modelsReply, presetsReply] = await Promise.all([
-      connection.api.llm.models({}),
-      connection.api.agentPresets.list({}),
+      ctx.remote.session.modelCatalog(),
+      ctx.remote.agentPresets.list(),
     ])
-    if (!modelsReply.result.ok) throw new Error(modelsReply.result.error.message)
-    if (!presetsReply.result.ok) throw new Error(presetsReply.result.error.message)
-    return { groups: modelsReply.result.value.groups, presets: [...presetsReply.result.value.presets] }
+    if (!modelsReply.ok) throw new Error(modelsReply.error.message)
+    if (!presetsReply.ok) throw new Error(presetsReply.error.message)
+    return { groups: modelsReply.value.groups.map(group => ({ ...group, models: [...group.models] })), presets: [...presetsReply.value.presets] }
   }
   const save = async (next: TeamSettings): Promise<void> => {
-    const revision = scope.getSnapshot().revision
-    const response = await connection.api.settings.mutate({
-      ns: 'codex-reasoning-router',
-      ops: [
-        { op: 'set', path: ['teamEnabled'], value: next.teamEnabled },
-        { op: 'set', path: ['presetIds'], value: next.presetIds },
-        { op: 'set', path: ['roles'], value: next.roles },
-        { op: 'set', path: ['triggerRules'], value: next.triggerRules },
-      ],
-      ...(revision === undefined ? {} : { expectedRevision: revision }),
-    })
-    if (!response.result.ok) throw new Error(response.result.error.message)
+    await scope.mutate([
+      { op: "set", path: ["teamEnabled"], value: next.teamEnabled },
+      { op: "set", path: ["presetIds"], value: next.presetIds },
+      { op: "set", path: ["roles"], value: next.roles.map(role => ({ ...role })) },
+      { op: "set", path: ["triggerRules"], value: { ...next.triggerRules } },
+    ], scope.getSnapshot().revision)
   }
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',

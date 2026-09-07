@@ -1,10 +1,9 @@
 import { useMemo } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { ChatNodeViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { conversationContextKey } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ChatNodeViewProps, ChatConversationViewNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {
-  ChatConversationViewNode,
   ConversationContextReader,
   ConversationMatch,
   ConversationNodeContext,
@@ -13,7 +12,7 @@ import type {
   ConversationViewBuilder,
   ConversationViewDefinition,
   ConversationViewNode,
-} from '@deepseek-ai/dsh-client-runtime/client'
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 const AGENT_ROLE_CHAT_KIND = 'agent-role/chat-run'
 export const AGENT_FLOW_TARGET = 'agent-flow'
@@ -52,7 +51,7 @@ export interface AgentFlowSnapshot {
   readonly nodes: readonly AgentFlowNode[]
 }
 
-declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
+declare module '@deepseek-ai/dsh-client-ui-chat/client' {
   interface ChatNodeDataMap {
     'agent-role/chat-run': AgentFlowRun
   }
@@ -171,7 +170,7 @@ function agentRoleRunDefinition(): ConversationNodeDefinition<AgentFlowRun> {
       const data = context.state
       if (data === undefined) return null
       return {
-        key: conversationContextKey(AGENT_ROLE_RUN_KIND, data.runId),
+        key: context.key,
         kind: AGENT_ROLE_RUN_KIND,
         id: data.runId,
         target: AGENT_FLOW_TARGET,
@@ -212,7 +211,7 @@ function agentRoleChatDefinition(): ConversationNodeDefinition<AgentFlowRun> {
       const data = context.state
       if (data === undefined || context.start === undefined) return null
       return {
-        key: conversationContextKey(AGENT_ROLE_CHAT_KIND, data.runId),
+        key: context.key,
         kind: AGENT_ROLE_CHAT_KIND,
         id: data.runId,
         target: 'chat',
@@ -396,12 +395,12 @@ interface AgentFlowSlots {
 
 export function registerAgentFlow(ctx: Context): void {
   const slots = ctx.slots as unknown as AgentFlowSlots
-  ctx.conversationEvents.register(agentRoleRunDefinition())
-  ctx.conversationEvents.register(agentRoleChatDefinition())
+  ctx.uiConversation.events.register(agentRoleRunDefinition())
+  ctx.uiConversation.events.register(agentRoleChatDefinition())
   slots.inject('conversation.chat.node', () => slots.register({
     name: 'conversation.chat.node', key: AGENT_ROLE_CHAT_KIND,
   }, AgentRoleChatStatus))
-  ctx.conversationViews.register(agentFlowViewDefinition)
+  ctx.uiConversation.views.register(agentFlowViewDefinition)
   slots.inject('conversation.view', () => slots.register({
     name: 'conversation.view',
     id: AGENT_FLOW_TARGET,

@@ -16,6 +16,8 @@ The legacy `luna-sol-reasoning-router` preset and durable `sol_consult` state ma
 
 ## Install
 
+Version 0.3.1 targets DSH 0.1.2-rc.1. It uses the split client domain services and Session projection API; rebuild against the same DSH checkout used by the profile.
+
 Install and authenticate the model provider first, then add this plugin:
 
 ```bash

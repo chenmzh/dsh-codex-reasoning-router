@@ -1,10 +1,11 @@
 /** Composable multi-model agent roles plus a legacy Luna/Sol router for DeepSeek Harness. */
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
+import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-presets'
+import type { Session } from '@deepseek-ai/dsh-session'
 import type { Context } from '@deepseek-ai/cordis'
 import { isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session'
@@ -45,7 +46,7 @@ export interface TeamSettings {
   triggerRules: RoleTriggerRules
 }
 
-export const TEAM_SETTINGS_NAMESPACE = settingsNamespace('codex-reasoning-router')
+export const TEAM_SETTINGS_NAMESPACE = 'codex-reasoning-router' as SettingsNamespace
 
 export const DEFAULT_TEAM_ROLES: TeamRoleConfig[] = [
   {
@@ -181,6 +182,13 @@ interface Installation {
 }
 
 /** Defense in depth: accidental global installation must not affect other presets. */
+function resolveSessionPreset(session: Session): string | null {
+  return session.snapshotEvents().reduce(
+    (state, event) => agentPresetProjectionDefinition.apply(state, event),
+    agentPresetProjectionDefinition.init(session.header),
+  )
+}
+
 export function isRouterPresetAgent(agent: Agent, roots: readonly Agent[], requiredPresetId: string): boolean {
   if (requiredPresetId === '') return false
   return roots.includes(agent) && resolveSessionPreset(agent.session) === requiredPresetId
@@ -234,7 +242,7 @@ export function apply(ctx: Context, config: Config): void {
     if (!active.teamEnabled) return false
     if (active.presetIds.length === 0) return true
     const preset = resolveSessionPreset(agent.session)
-    return preset !== undefined && active.presetIds.includes(preset)
+    return preset !== null && active.presetIds.includes(preset)
   }
 
   const attachTeam = (agent: Agent): void => {
@@ -272,11 +280,11 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   if (typeof ctx.inject === 'function') {
-    installSettingsSection(ctx, TEAM_SETTINGS_NAMESPACE, TeamSettings, baseTeam, {
+    ctx.inject(['settings'], settingsCtx => settingsCtx.settings.installSection(ctx, TEAM_SETTINGS_NAMESPACE, TeamSettings, baseTeam, {
       validate: validateTeamSettings,
       setSource: source => { teamSource = source },
       onChange: reconfigureTeam,
-    })
+    }))
   }
 
   /** Reconcile the installation after a blank session changes its preset. */

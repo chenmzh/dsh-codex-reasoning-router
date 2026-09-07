@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
 import {
-  CallId,
+  ToolCallId as CallId,
   createUserMessage,
 
   type GenerateOptions,
@@ -60,6 +60,7 @@ function fakeAgent(id: string, seed: readonly never[] = [], agentPreset?: string
   const session = Session.create(SessionId(id), seed, agentPreset === undefined ? undefined : {
     id: SessionId(id),
     version: 0,
+    isSeeded: false,
     createdAt: 0,
     delegationDepth: 0,
     agentPreset,

@@ -13,7 +13,7 @@ export interface CatalogModel {
   id: string
   name: string
   description?: string
-  reasoning?: { efforts: CatalogEffort[]; defaultEffort?: string }
+  reasoning?: { efforts: readonly CatalogEffort[]; defaultEffort?: string }
 }
 export interface CatalogGroup { id: string; name: string; models: CatalogModel[] }
 export interface CatalogPreset {

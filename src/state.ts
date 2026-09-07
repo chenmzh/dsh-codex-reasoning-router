@@ -34,11 +34,11 @@ export function issueFingerprint(input: SolConsultInput): string {
 }
 
 function localStart(session: Session): number {
-  return session.header.seedLength ?? 0
+  return session.inheritedEventCount
 }
 
-function sessionEvents(session: Session): readonly any[] {
-  return typeof (session as any).snapshotEvents === 'function' ? (session as any).snapshotEvents() : (session.events ?? [])
+function sessionEvents(session: Session) {
+  return session.ownEvents()
 }
 
 /** Fold plugin-owned durable events. Process-local maps are never authoritative. */

@@ -1,10 +1,11 @@
 import { ContentBlock } from "@deepseek-ai/dsh-llm";
 import z from "@deepseek-ai/schemastery";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { JsonValue, Session, UserMessage } from "@deepseek-ai/dsh-session";
+import { Session, UserMessage } from "@deepseek-ai/dsh-session";
 import { ToolDefinition } from "@deepseek-ai/dsh-tools";
 import { Agent } from "@deepseek-ai/dsh-agent";
 import { Context } from "@deepseek-ai/cordis";
+import { SettingsNamespace } from "@deepseek-ai/dsh-settings";
 //#region src/constants.d.ts
 declare const PACKAGE_NAME = "dsh-codex-reasoning-router";
 declare const SOL_CONSULT_TOOL = "sol_consult";
@@ -283,6 +284,13 @@ declare function hasExhaustedRecord(session: Session, fingerprint: string): bool
 //#region src/tool.d.ts
 declare function solConsultTool(router: ReasoningRouter): ToolDefinition;
 //#endregion
+//#region ../13_dsh_auto_update/staging/dsh-web-upgrade-20260905/packages/util/values/lib/types/index.d.ts
+/** Duplicate-install-safe JSON and immutable-value helpers. @module @deepseek-ai/dsh-util-values */
+/** A value that round-trips through JSON without loss. */
+type JsonValue = null | boolean | number | string | JsonValue[] | {
+  [key: string]: JsonValue;
+};
+//#endregion
 //#region src/team-tool.d.ts
 declare function agentTeamRunTool(team: AgentTeam): ToolDefinition;
 declare function agentTeamCatalogTool(load: () => Promise<JsonValue[]>): ToolDefinition;
@@ -297,12 +305,11 @@ interface TeamSettings {
   roles: TeamRoleConfig[];
   triggerRules: RoleTriggerRules;
 }
-declare const TEAM_SETTINGS_NAMESPACE: import("@deepseek-ai/dsh-settings").SettingsNamespace;
+declare const TEAM_SETTINGS_NAMESPACE: SettingsNamespace;
 declare const DEFAULT_TEAM_ROLES: TeamRoleConfig[];
 declare const TeamSettings: z<TeamSettings>;
 declare const Config: z<Config>;
 declare function validateTeamSettings(config: TeamSettings): void;
-/** Defense in depth: accidental global installation must not affect other presets. */
 declare function isRouterPresetAgent(agent: Agent, roots: readonly Agent[], requiredPresetId: string): boolean;
 declare function apply(ctx: Context, config: Config): void;
 //#endregion
